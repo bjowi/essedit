@@ -4,7 +4,7 @@ import argparse
 import datetime
 from collections import namedtuple
 from struct import unpack
-
+import sys
 import ImageFile
 import Image
 
@@ -12,12 +12,13 @@ def get_options():
     parser = argparse.ArgumentParser(description='ff')
     parser.add_argument('-f', '--essfile', dest='essfile', type=str)
     parser.add_argument('-i', '--image', dest='image', type=str)
+    parser.add_argument('-p', '--list_plugins', dest='list_plugins', action='store_true')
     return parser.parse_args()
 
 
 FileHeader = namedtuple('FileHeader', 'fileId majorVersion minorVersion exeTime')
 SaveGameHeader = namedtuple('SaveGameHeader', 'headerVersion saveHeaderSize saveNum pcName pcLevel pcLocation gameDays gameTicks gameTime screenshot')
-Globals = namedtuple('Globals', 'formIdsOffset recordsNum nextObjectId worldId worldX worldY pcLocation')
+Globals = namedtuple('Globals', 'formIdsOffset recordsNum nextObjectId worldId worldX worldY pcLocation globalsNum globals tesClassSize numDeathCounts deathCounts gameModeSeconds processesSize processesData specEventSize specEventData weatherSize weatherData playerCombatCount createdNum createdData quickKeysSize quickKeysData reticuleSize reticuleData interfaceSize interfaceData')
 PCLocation = namedtuple('PCLocation', 'cell x y z')
 
 def time_from_win_systemtime(systemtime):
@@ -53,6 +54,59 @@ def parse_screenshot(filehandle, write_to_file=None):
         im.save(write_to_file)
     return im
 
+def parse_globals(filehandle):
+    n_globals = unpack('H', essfile.read(2))[0]
+    globals_dict = dict()
+    for n in range(n_globals):
+        iref, value = unpack('If', essfile.read(8))
+        globals_dict[iref] = value
+
+    return [n_globals, globals_dict]
+
+def parse_deathcounts(filehandle):
+    numDeathCounts = unpack('I', essfile.read(4))[0]
+    deathCounts = dict()
+    for n in range(numDeathCounts):
+        actor, deathCount = unpack('IH', essfile.read(6))
+        deathCounts[actor] = deathCount
+
+    return [numDeathCounts, deathCounts]
+
+def parse_bytelist(filehandle, bytetype='s'):
+    size = unpack('H', essfile.read(2))[0]
+    data = unpack('%d%s' % (size, bytetype), essfile.read(size))
+    return [size, data]
+
+def parse_createddata(filehandle):
+    createdNum = unpack('I', essfile.read(4))[0]
+    records = list()
+    print "Found %d created records" % createdNum
+    for count in range(createdNum):
+        record_type = unpack('4s', essfile.read(4))[0]
+        print '%r' % record_type
+        record_size = unpack('I', essfile.read(4))[0]
+        print record_size
+        data = unpack('%ds' % record_size, essfile.read(record_size))
+        print data
+        records.append((record_type, data))
+
+    return [createdNum, records]
+
+def parse_quickkeydata(filehandle):
+    quickKeysSize = unpack('H', essfile.read(2))[0]
+    quickKeys = list()
+    for count in range(quickKeysSize):
+        flag = unpack('B', essfile.read(1))[0]
+        if flag:
+            iref = unpack('I', essfile.read(4))[0]
+            quickKeys.append(iref)
+        else:
+            notset = unpack('B', essfile.read(1))[0]
+            quickKeys.append(notset)
+
+    return [quickKeysSize, quickKeys]
+
+
 if __name__ == '__main__':
     options = get_options()
     with open(options.essfile, 'rb') as essfile:
@@ -84,11 +138,41 @@ if __name__ == '__main__':
         globalslist.extend(list(unpack('6I', essfile.read(24))))
         pcloc = PCLocation._make(unpack('4I', essfile.read(16)))
         globalslist.append(pcloc)
-        globalsNum = unpack('H', essfile.read(2))
-        print globalsNum
+        globalslist.extend(parse_globals(essfile))
+        tesClassSize = unpack('H', essfile.read(2))[0]
+        globalslist.append(tesClassSize)
+        globalslist.extend(parse_deathcounts(essfile))
+        globalslist.append(unpack('f', essfile.read(4))[0])
+
+        # processesData
+        globalslist.extend(parse_bytelist(essfile))
+
+        # specEventData
+        globalslist.extend(parse_bytelist(essfile))
+
+        # weatherData
+        globalslist.extend(parse_bytelist(essfile))
+
+        globalslist.append(unpack('I', essfile.read(4))[0])
+
+        globalslist.extend(parse_createddata(essfile))
+
+        globalslist.extend(parse_quickkeydata(essfile))
+
+        # reticuleData
+        globalslist.extend(parse_bytelist(essfile, bytetype='s'))
+
+        # interface stuff
+        globalslist.extend(parse_bytelist(essfile))
+
         g = Globals._make(globalslist)
+        with open('foo.dds', 'w') as f:
+            f.write(g.reticuleData[0])
 
     print h
     print s
-    print len(plugins)
+    print "%s plugins found" % len(plugins)
+    if options.list_plugins:
+        for p in sorted(plugins):
+            print p
     print g
