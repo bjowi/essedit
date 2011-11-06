@@ -19,6 +19,7 @@ def enum(**nums):
     res = namedtuple('Enum', nums.keys())
     return res(*nums.values()), dict((v,k) for k, v in nums.iteritems())
 
+SaveGame = namedtuple('SaveGame', 'fileheader gameheader globals plugins records tempEffectsData formIds worldSpaces')
 FileHeader = namedtuple('FileHeader', 'fileId majorVersion minorVersion exeTime')
 SaveGameHeader = namedtuple('SaveGameHeader', 'headerVersion saveHeaderSize saveNum pcName pcLevel pcLocation gameDays gameTicks gameTime screenshot')
 Globals = namedtuple('Globals', 'formIdsOffset recordsNum nextObjectId worldId worldX worldY pcLocation globalsNum globals tesClassSize numDeathCounts deathCounts gameModeSeconds processesSize processesData specEventSize specEventData weatherSize weatherData playerCombatCount createdNum createdData quickKeysSize quickKeysData reticuleSize reticuleData interfaceSize interfaceData regionsSize regionsNum regions')
@@ -166,9 +167,7 @@ def parse_record(filehandle):
     data = filehandle.read(datasize)
     return [formId, record_type, flags, version, datasize, data]
 
-
-if __name__ == '__main__':
-    options = get_options()
+def load(options):
     with open(options.essfile, 'rb') as essfile:
         # FileHeader
         headerpart = list(unpack('12s B B', essfile.read(14)))
@@ -234,22 +233,40 @@ if __name__ == '__main__':
         print "3 %r" % essfile.tell()
 
         g = Globals._make(globalslist)
-        print "before records %r" % essfile.tell()
-        print g.quickKeysSize
-        print g.reticuleSize
-        print g.interfaceSize
-        print g.regionsSize
+
+        # change records
         records = list()
         for c in range(g.recordsNum):
             records.append(parse_record(essfile))
 
-    print h
-    print s
-    print "%s plugins found" % len(plugins)
-    if options.list_plugins:
-        for p in sorted(plugins):
-            print p
-    print "%s records found" % len(records)
+        # temporary effects
+        tempEffectsSize = unpack('I', essfile.read(4))[0]
+        print tempEffectsSize
+        tempEffectsData = essfile.read(tempEffectsSize)
 
-#    for r in records:
-#        print RecordTypeNames.get(r[1], '%r xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx' % r[1])
+        # formIds
+        formIdsNum = unpack('I', essfile.read(4))[0]
+        formIds = unpack('%sI' % formIdsNum, essfile.read(4 * formIdsNum))
+
+        # worldSpaces
+        worldSpacesNum = unpack('I', essfile.read(4))[0]
+        worldSpaces = unpack('%sI' % worldSpacesNum, essfile.read(4 * worldSpacesNum))
+        print '%r %r' % (worldSpacesNum, len(worldSpaces))
+
+    savegame = SaveGame._make([h, s, g, plugins, records, tempEffectsData, formIds, worldSpaces])
+    return savegame
+
+if __name__ == '__main__':
+    options = get_options()
+    savegame = load(options)
+
+    print "%s plugins found" % len(savegame.plugins)
+    if options.list_plugins:
+        for p in sorted(savegame.plugins):
+            print p
+    print "%s change records found" % len(savegame.records)
+
+    for r in savegame.records:
+        print RecordTypeNames.get(r[1], '%r xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx' % r[1])
+
+
