@@ -18,7 +18,7 @@ def get_options():
 
 FileHeader = namedtuple('FileHeader', 'fileId majorVersion minorVersion exeTime')
 SaveGameHeader = namedtuple('SaveGameHeader', 'headerVersion saveHeaderSize saveNum pcName pcLevel pcLocation gameDays gameTicks gameTime screenshot')
-Globals = namedtuple('Globals', 'formIdsOffset recordsNum nextObjectId worldId worldX worldY pcLocation globalsNum globals tesClassSize numDeathCounts deathCounts gameModeSeconds processesSize processesData specEventSize specEventData weatherSize weatherData playerCombatCount createdNum createdData quickKeysSize quickKeysData reticuleSize reticuleData interfaceSize interfaceData')
+Globals = namedtuple('Globals', 'formIdsOffset recordsNum nextObjectId worldId worldX worldY pcLocation globalsNum globals tesClassSize numDeathCounts deathCounts gameModeSeconds processesSize processesData specEventSize specEventData weatherSize weatherData playerCombatCount createdNum createdData quickKeysSize quickKeysData reticuleSize reticuleData interfaceSize interfaceData regionsSize regionsNum regions')
 PCLocation = namedtuple('PCLocation', 'cell x y z')
 
 def time_from_win_systemtime(systemtime):
@@ -44,10 +44,10 @@ def parse_b_or_bzstring(filehandle, bz=False):
 
 
 def parse_screenshot(filehandle, write_to_file=None):
-    size, width, height = unpack('3I', essfile.read(12))
+    size, width, height = unpack('3I', filehandle.read(12))
     print [size, width, height]
     size -= 8
-    rgb_data = essfile.read(size)
+    rgb_data = filehandle.read(size)
     im = Image.frombuffer('RGB', (width, height), rgb_data)
     im.rotate(180)
     if write_to_file:
@@ -55,57 +55,66 @@ def parse_screenshot(filehandle, write_to_file=None):
     return im
 
 def parse_globals(filehandle):
-    n_globals = unpack('H', essfile.read(2))[0]
+    n_globals = unpack('H', filehandle.read(2))[0]
     globals_dict = dict()
     for n in range(n_globals):
-        iref, value = unpack('If', essfile.read(8))
+        iref, value = unpack('If', filehandle.read(8))
         globals_dict[iref] = value
 
     return [n_globals, globals_dict]
 
 def parse_deathcounts(filehandle):
-    numDeathCounts = unpack('I', essfile.read(4))[0]
+    numDeathCounts = unpack('I', filehandle.read(4))[0]
     deathCounts = dict()
     for n in range(numDeathCounts):
-        actor, deathCount = unpack('IH', essfile.read(6))
+        actor, deathCount = unpack('IH', filehandle.read(6))
         deathCounts[actor] = deathCount
 
     return [numDeathCounts, deathCounts]
 
 def parse_bytelist(filehandle, bytetype='s'):
-    size = unpack('H', essfile.read(2))[0]
-    data = unpack('%d%s' % (size, bytetype), essfile.read(size))
+    size = unpack('H', filehandle.read(2))[0]
+    data = unpack('%d%s' % (size, bytetype), filehandle.read(size))
     return [size, data]
 
 def parse_createddata(filehandle):
-    createdNum = unpack('I', essfile.read(4))[0]
+    createdNum = unpack('I', filehandle.read(4))[0]
     records = list()
     print "Found %d created records" % createdNum
     for count in range(createdNum):
-        record_type = unpack('4s', essfile.read(4))[0]
-        print '%r' % record_type
-        record_size = unpack('I', essfile.read(4))[0]
-        print record_size
-        data = unpack('%ds' % record_size, essfile.read(record_size))
-        print data
+        record_type = unpack('4s', filehandle.read(4))
+        print 'type: %r' % record_type
+        record_size = unpack('4I', filehandle.read(16))
+        print 'size: %r' % list(record_size)
+        data = unpack('%ds' % record_size[0], filehandle.read(record_size[0]))
+#        print 'data: %r' % data
         records.append((record_type, data))
 
     return [createdNum, records]
 
 def parse_quickkeydata(filehandle):
-    quickKeysSize = unpack('H', essfile.read(2))[0]
+    quickKeysSize = unpack('H', filehandle.read(2))[0]
     quickKeys = list()
     for count in range(quickKeysSize):
-        flag = unpack('B', essfile.read(1))[0]
+        flag = unpack('B', filehandle.read(1))[0]
         if flag:
-            iref = unpack('I', essfile.read(4))[0]
+            iref = unpack('I', filehandle.read(4))[0]
             quickKeys.append(iref)
         else:
-            notset = unpack('B', essfile.read(1))[0]
+            notset = unpack('B', filehandle.read(1))[0]
             quickKeys.append(notset)
 
     return [quickKeysSize, quickKeys]
 
+def parse_regions(filehandle):
+    size, count = unpack('2H', filehandle.read(4))
+
+    regions = dict()
+    for n in range(count):
+        iref, value = unpack('II', filehandle.read(8))
+        regions[iref] = value
+
+    return [size, count, regions]
 
 if __name__ == '__main__':
     options = get_options()
@@ -165,9 +174,10 @@ if __name__ == '__main__':
         # interface stuff
         globalslist.extend(parse_bytelist(essfile))
 
+        globalslist.extend(parse_regions(essfile))
         g = Globals._make(globalslist)
-        with open('foo.dds', 'w') as f:
-            f.write(g.reticuleData[0])
+
+        records = parse_records(essfile)
 
     print h
     print s
@@ -176,3 +186,4 @@ if __name__ == '__main__':
         for p in sorted(plugins):
             print p
     print g
+
