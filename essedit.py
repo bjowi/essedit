@@ -15,17 +15,42 @@ def get_options():
     parser.add_argument('-p', '--list_plugins', dest='list_plugins', action='store_true')
     return parser.parse_args()
 
+def enum(**nums):
+    res = namedtuple('Enum', nums.keys())
+    return res(*nums.values()), dict((v,k) for k, v in nums.iteritems())
 
 FileHeader = namedtuple('FileHeader', 'fileId majorVersion minorVersion exeTime')
 SaveGameHeader = namedtuple('SaveGameHeader', 'headerVersion saveHeaderSize saveNum pcName pcLevel pcLocation gameDays gameTicks gameTime screenshot')
 Globals = namedtuple('Globals', 'formIdsOffset recordsNum nextObjectId worldId worldX worldY pcLocation globalsNum globals tesClassSize numDeathCounts deathCounts gameModeSeconds processesSize processesData specEventSize specEventData weatherSize weatherData playerCombatCount createdNum createdData quickKeysSize quickKeysData reticuleSize reticuleData interfaceSize interfaceData regionsSize regionsNum regions')
 PCLocation = namedtuple('PCLocation', 'cell x y z')
 
+RecordTypes, RecordTypeNames = enum(FACT=6,
+                                    APPA=19,
+                                    ARMO=20,
+                                    BOOK=21,
+                                    CLOT=22,
+                                    INGR=25,
+                                    LIGH=26,
+                                    MISC=27,
+                                    WEAP=33,
+                                    AMMO=34,
+                                    NPC_=35,
+                                    CREA=36,
+                                    SLGM=38,
+                                    KEYM=39,
+                                    ALCH=40,
+                                    CELL=48,
+                                    REFR=49,
+                                    ACHR=50,
+                                    ACRE=51,
+                                    INFO=58,
+                                    QUST=59,
+                                    PACK=61)
+
 def time_from_win_systemtime(systemtime):
     systemtime[7] *= 1000 # ms to us
     systemtime.pop(2) # Remove dayofweek
     return datetime.datetime(*systemtime)
-
 
 def parse_systemtime(filehandle):
     t = unpack('8H', filehandle.read(16))
@@ -56,6 +81,7 @@ def parse_screenshot(filehandle, write_to_file=None):
 
 def parse_globals(filehandle):
     n_globals = unpack('H', filehandle.read(2))[0]
+    print "n_globals %r" % n_globals
     globals_dict = dict()
     for n in range(n_globals):
         iref, value = unpack('If', filehandle.read(8))
@@ -74,7 +100,7 @@ def parse_deathcounts(filehandle):
 
 def parse_bytelist(filehandle, bytetype='s'):
     size = unpack('H', filehandle.read(2))[0]
-    data = unpack('%d%s' % (size, bytetype), filehandle.read(size))
+    data = filehandle.read(size) # unpack('%d%s' % (size, bytetype), filehandle.read(size))
     return [size, data]
 
 def parse_createddata(filehandle):
@@ -95,14 +121,18 @@ def parse_createddata(filehandle):
 def parse_quickkeydata(filehandle):
     quickKeysSize = unpack('H', filehandle.read(2))[0]
     quickKeys = list()
-    for count in range(quickKeysSize):
+    bytes_read = 0
+    while bytes_read < quickKeysSize:
         flag = unpack('B', filehandle.read(1))[0]
+        bytes_read += 1
         if flag:
             iref = unpack('I', filehandle.read(4))[0]
             quickKeys.append(iref)
+            bytes_read += 4
         else:
             notset = unpack('B', filehandle.read(1))[0]
             quickKeys.append(notset)
+            bytes_read += 1
 
     return [quickKeysSize, quickKeys]
 
@@ -115,6 +145,22 @@ def parse_regions(filehandle):
         regions[iref] = value
 
     return [size, count, regions]
+
+def parse_record(filehandle):
+    (formId,record_type,flags,version,datasize) = unpack('=IBIBH', filehandle.read(12))
+
+    #formId, = unpack('I', filehandle.read(4))
+    #print formId
+    #record_type, = unpack('B', filehandle.read(1))
+    print RecordTypeNames.get(record_type, '%r xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx' % record_type)
+    #flags, = unpack('I', filehandle.read(4))
+    #version, = unpack('B', filehandle.read(1))
+    print locals()
+    #datasize, = unpack('H', filehandle.read(2))
+
+    data = filehandle.read(datasize)
+    return [formId, record_type, flags, version, datasize]
+
 
 if __name__ == '__main__':
     options = get_options()
@@ -145,8 +191,9 @@ if __name__ == '__main__':
         # Globals
         globalslist = list()
         globalslist.extend(list(unpack('6I', essfile.read(24))))
-        pcloc = PCLocation._make(unpack('4I', essfile.read(16)))
+        pcloc = PCLocation._make(unpack('I3f', essfile.read(16)))
         globalslist.append(pcloc)
+        print globalslist
         globalslist.extend(parse_globals(essfile))
         tesClassSize = unpack('H', essfile.read(2))[0]
         globalslist.append(tesClassSize)
@@ -175,9 +222,12 @@ if __name__ == '__main__':
         globalslist.extend(parse_bytelist(essfile))
 
         globalslist.extend(parse_regions(essfile))
+
         g = Globals._make(globalslist)
 
-        records = parse_records(essfile)
+        records = list()
+        for c in range(g.recordsNum):
+            records.append(parse_record(essfile))
 
     print h
     print s
@@ -185,5 +235,5 @@ if __name__ == '__main__':
     if options.list_plugins:
         for p in sorted(plugins):
             print p
-    print g
+    print records
 
