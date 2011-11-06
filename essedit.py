@@ -73,8 +73,8 @@ def parse_screenshot(filehandle, write_to_file=None):
     print [size, width, height]
     size -= 8
     rgb_data = filehandle.read(size)
-    im = Image.frombuffer('RGB', (width, height), rgb_data)
-    im.rotate(180)
+    im = Image.frombuffer('RGB', (width, height), rgb_data, 'raw', 'RGB', 0, 1)
+
     if write_to_file:
         im.save(write_to_file)
     return im
@@ -147,19 +147,17 @@ def parse_regions(filehandle):
     return [size, count, regions]
 
 def parse_record(filehandle):
-    (formId,record_type,flags,version,datasize) = unpack('=IBIBH', filehandle.read(12))
-
-    #formId, = unpack('I', filehandle.read(4))
+    formId, = unpack('I', filehandle.read(4))
     #print formId
-    #record_type, = unpack('B', filehandle.read(1))
+    record_type, = unpack('B', filehandle.read(1))
     print RecordTypeNames.get(record_type, '%r xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx' % record_type)
-    #flags, = unpack('I', filehandle.read(4))
-    #version, = unpack('B', filehandle.read(1))
+    flags, = unpack('I', filehandle.read(4))
+    version, = unpack('B', filehandle.read(1))
     print locals()
-    #datasize, = unpack('H', filehandle.read(2))
+    datasize, = unpack('H', filehandle.read(2))
 
     data = filehandle.read(datasize)
-    return [formId, record_type, flags, version, datasize]
+    return [formId, record_type, flags, version, datasize, data]
 
 
 if __name__ == '__main__':
