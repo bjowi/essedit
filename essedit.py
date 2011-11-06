@@ -109,9 +109,9 @@ def parse_createddata(filehandle):
     print "Found %d created records" % createdNum
     for count in range(createdNum):
         record_type = unpack('4s', filehandle.read(4))
-        print 'type: %r' % record_type
+        #print 'type: %r' % record_type
         record_size = unpack('4I', filehandle.read(16))
-        print 'size: %r' % list(record_size)
+        #print 'size: %r' % list(record_size)
         data = unpack('%ds' % record_size[0], filehandle.read(record_size[0]))
 #        print 'data: %r' % data
         records.append((record_type, data))
@@ -120,9 +120,17 @@ def parse_createddata(filehandle):
 
 def parse_quickkeydata(filehandle):
     quickKeysSize = unpack('H', filehandle.read(2))[0]
+    print "qs %r" % quickKeysSize
+    quickKeysData = filehandle.read(quickKeysSize)
+
+    return [quickKeysSize, quickKeysData]
+
     quickKeys = list()
     bytes_read = 0
-    while bytes_read < quickKeysSize:
+    while True:
+        if bytes_read >= quickKeysSize:
+            break
+
         flag = unpack('B', filehandle.read(1))[0]
         bytes_read += 1
         if flag:
@@ -133,6 +141,8 @@ def parse_quickkeydata(filehandle):
             notset = unpack('B', filehandle.read(1))[0]
             quickKeys.append(notset)
             bytes_read += 1
+        print "qs %r" % quickKeys
+        print "qs %r" % bytes_read
 
     return [quickKeysSize, quickKeys]
 
@@ -148,12 +158,9 @@ def parse_regions(filehandle):
 
 def parse_record(filehandle):
     formId, = unpack('I', filehandle.read(4))
-    #print formId
     record_type, = unpack('B', filehandle.read(1))
-    print RecordTypeNames.get(record_type, '%r xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx' % record_type)
     flags, = unpack('I', filehandle.read(4))
     version, = unpack('B', filehandle.read(1))
-    print locals()
     datasize, = unpack('H', filehandle.read(2))
 
     data = filehandle.read(datasize)
@@ -191,7 +198,6 @@ if __name__ == '__main__':
         globalslist.extend(list(unpack('6I', essfile.read(24))))
         pcloc = PCLocation._make(unpack('I3f', essfile.read(16)))
         globalslist.append(pcloc)
-        print globalslist
         globalslist.extend(parse_globals(essfile))
         tesClassSize = unpack('H', essfile.read(2))[0]
         globalslist.append(tesClassSize)
@@ -209,20 +215,30 @@ if __name__ == '__main__':
 
         globalslist.append(unpack('I', essfile.read(4))[0])
 
+        print "before createddata %r" % essfile.tell()
         globalslist.extend(parse_createddata(essfile))
+        print "after createddata %r" % essfile.tell()
 
         globalslist.extend(parse_quickkeydata(essfile))
+        print "0 %r" % essfile.tell()
 
         # reticuleData
         globalslist.extend(parse_bytelist(essfile, bytetype='s'))
+        print "1 %r" % essfile.tell()
 
         # interface stuff
         globalslist.extend(parse_bytelist(essfile))
+        print "2 %r" % essfile.tell()
 
         globalslist.extend(parse_regions(essfile))
+        print "3 %r" % essfile.tell()
 
         g = Globals._make(globalslist)
-
+        print "before records %r" % essfile.tell()
+        print g.quickKeysSize
+        print g.reticuleSize
+        print g.interfaceSize
+        print g.regionsSize
         records = list()
         for c in range(g.recordsNum):
             records.append(parse_record(essfile))
@@ -233,5 +249,7 @@ if __name__ == '__main__':
     if options.list_plugins:
         for p in sorted(plugins):
             print p
-    print records
+    print "%s records found" % len(records)
 
+#    for r in records:
+#        print RecordTypeNames.get(r[1], '%r xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx' % r[1])
