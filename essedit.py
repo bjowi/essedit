@@ -3,7 +3,8 @@
 import argparse
 import datetime
 from collections import namedtuple
-from struct import unpack, pack
+from struct import unpack, pack, error
+
 import sys
 import ImageFile
 import Image
@@ -84,10 +85,9 @@ def write_b_or_bzstring(filehandle, s, bz=False):
 def parse_b_or_bzstring(filehandle, bz=False):
     # A string prefixed with a byte length and optionally terminated with a zero (\x00).
     length = unpack('B', filehandle.read(1))[0]
-    s = unpack('%ds' % length, filehandle.read(length))[0]
+    s = filehandle.read(length)
     if bz:
-        print '%r' % s
-        return s
+        return s[:-1]
     else:
         return s
 
@@ -125,20 +125,32 @@ def parse_bytelist(filehandle, bytetype='s'):
     data = filehandle.read(size) # unpack('%d%s' % (size, bytetype), filehandle.read(size))
     return [size, data]
 
+def write_bytelist(filehandle, size, data):
+    filehandle.write(pack('H', len(data)))
+    filehandle.write(data)
+
 def parse_createddata(filehandle):
     createdNum = unpack('I', filehandle.read(4))[0]
     records = list()
     #print "Found %d created records" % createdNum
     for count in range(createdNum):
-        record_type = unpack('4s', filehandle.read(4))
+        record_type, = unpack('4s', filehandle.read(4))
         #print 'type: %r' % record_type
-        record_size = unpack('4I', filehandle.read(16))
-        #print 'size: %r' % list(record_size)
-        data = unpack('%ds' % record_size[0], filehandle.read(record_size[0]))
+        record_size, flags, formId, vcinfo = unpack('4I', filehandle.read(16))
+        print 'size: %r %r' % (record_size, flags)
+        data, = unpack('%ds' % record_size, filehandle.read(record_size))
         #print 'data: %r' % data
-        records.append((record_type, data))
+        records.append([record_type, record_size, flags, formId, vcinfo, data])
 
     return [createdNum, records]
+
+def write_created_data(filehandle, globalsdata):
+    filehandle.write(pack('I', globalsdata.createdNum))
+    print globalsdata.createdData
+    for record in globalsdata.createdData:
+        filehandle.write(record[0])
+        filehandle.write(pack('4I', *(record[1:5])))
+        filehandle.write(record[5])
 
 def parse_quickkeydata(filehandle):
     quickKeysSize = unpack('H', filehandle.read(2))[0]
@@ -177,7 +189,9 @@ def parse_regions(filehandle):
 
     return [size, count, regions]
 
+
 def parse_record(filehandle):
+#    formId, record_type, flags, version, datasize = unpack('=IBIBH', filehandle.read(12))
     formId, = unpack('I', filehandle.read(4))
     record_type, = unpack('B', filehandle.read(1))
     flags, = unpack('I', filehandle.read(4))
@@ -194,26 +208,29 @@ def load(options):
         headerpart.append(parse_systemtime(essfile))
         h = FileHeader._make(headerpart)
         print h
+        print "after fileheader %r" % essfile.tell()
 
         # SaveGameHeader
         gameheader = list(unpack('3I', essfile.read(12)))
-        print gameheader[-1]
 
         gameheader.append(parse_b_or_bzstring(essfile, bz=True))
-        print gameheader[-1]
         gameheader.append(unpack('H', essfile.read(2))[0])
-
+        print "count is %r" % essfile.tell()
         gameheader.append(parse_b_or_bzstring(essfile, bz=True))
         gameheader.extend(list(unpack('fI', essfile.read(8))))
         gameheader.append(parse_systemtime(essfile))
         gameheader.append(parse_screenshot(essfile, options.image))
         s = SaveGameHeader._make(gameheader)
+        print s
+        print "after sh %r" % essfile.tell()
 
         # Plugins
         plugins = list()
         plugincount = unpack('B', essfile.read(1))[0]
         for index in range(plugincount):
             plugins.append(parse_b_or_bzstring(essfile))
+
+        print "after plugins %s" % essfile.tell()
 
         # Globals
         globalslist = list()
@@ -234,28 +251,41 @@ def load(options):
 
         # weatherData
         globalslist.extend(parse_bytelist(essfile))
-
         globalslist.append(unpack('I', essfile.read(4))[0])
-
         globalslist.extend(parse_createddata(essfile))
-
         globalslist.extend(parse_quickkeydata(essfile))
 
         # reticuleData
         globalslist.extend(parse_bytelist(essfile, bytetype='s'))
-
+        print "count is %r" % essfile.tell()
         # interface stuff
         globalslist.extend(parse_bytelist(essfile))
-
+        print "count is %r" % essfile.tell()
         # regions
         globalslist.extend(parse_regions(essfile))
-
+        print "count is %r" % essfile.tell()
         g = Globals._make(globalslist)
+        print "recordsnum: %r" % g.recordsNum
+        print "after globals pd %s" % essfile.tell()
 
         # change records
         records = list()
+        count = 0
+        sizes = list()
+        print "count is %r" % essfile.tell()
         for c in range(g.recordsNum):
-            records.append(parse_record(essfile))
+            try:
+                record = parse_record(essfile)
+                records.append(record)
+                formId, record_type, flags, version, datasize, data = records[-1]
+                #print RecordTypeNames.get(r[1])
+                #print r[:5]
+                count += datasize
+                sizes.append(essfile.tell())
+            except error:
+                print "count is %r" % essfile.tell()
+                #print sizes
+                raise
 
         # temporary effects
         tempEffectsSize = unpack('I', essfile.read(4))[0]
@@ -277,11 +307,11 @@ def write(savegame, options):
         # Fileheader
         essfile.write(savegame.fileheader.fileId)
         essfile.write(pack('BB', savegame.fileheader.majorVersion,
-                           savegame.fileheader.majorVersion))
+                           savegame.fileheader.minorVersion))
         stime = time_to_win_systemtime(savegame.fileheader.exeTime)
         print "stime: %r" % stime
         essfile.write(pack('8H', *stime))
-
+        print "after fileheader %r" % essfile.tell()
         # SaveGameHeader
         essfile.write(pack('3I', savegame.gameheader.headerVersion,
                            savegame.gameheader.saveHeaderSize,
@@ -298,31 +328,90 @@ def write(savegame, options):
         w, h = im.size
         essfile.write(pack('3I', (w*h*3)+8, w, h))
         essfile.write(im.tostring())
-
-        return
+        print "after sh %r" % essfile.tell()
         # Plugins
-        plugins = list()
-        plugincount = unpack('B', essfile.read(1))[0]
-        for index in range(plugincount):
-            plugins.append(parse_b_or_bzstring(essfile))
-
+        plugincount = len(savegame.plugins)
+        essfile.write(pack('B', plugincount))
+        for plugin in savegame.plugins:
+            write_b_or_bzstring(essfile, plugin)
+        print "after plugins %r" % essfile.tell()
         # Globals
-        globalslist = list()
-        globalslist.extend(list(unpack('6I', essfile.read(24))))
-        pcloc = PCLocation._make(unpack('I3f', essfile.read(16)))
-        globalslist.append(pcloc)
-        globalslist.extend(parse_globals(essfile))
-        tesClassSize = unpack('H', essfile.read(2))[0]
-        globalslist.append(tesClassSize)
-        globalslist.extend(parse_deathcounts(essfile))
-        globalslist.append(unpack('f', essfile.read(4))[0])
+        essfile.write(pack('6I', *(savegame.globals[:6])))
+        print "1before pl %s" % essfile.tell()
+        essfile.write(pack('I3f', *(savegame.globals.pcLocation)))
+        essfile.write(pack('H', len(savegame.globals.globals)))
+        for k,v in savegame.globals.globals.iteritems():
+            essfile.write(pack('If', k, v))
+        print "2pg %s" % essfile.tell()
+        essfile.write(pack('H', savegame.globals.tesClassSize))
+        print "2before pd %s" % essfile.tell()
+        essfile.write(pack('I', len(savegame.globals.deathCounts)))
+        for k,v in savegame.globals.deathCounts.iteritems():
+            essfile.write(pack('IH', k, v))
+
+        essfile.write(pack('f', savegame.globals.gameModeSeconds))
+        print "before pd %s" % essfile.tell()
+        write_bytelist(essfile, savegame.globals.processesSize,
+                       savegame.globals.processesData)
+        print "process is %r" % essfile.tell()
+
+        write_bytelist(essfile, savegame.globals.specEventSize,
+                       savegame.globals.specEventData)
+        print "spec is %r" % essfile.tell()
+
+        write_bytelist(essfile, savegame.globals.weatherSize,
+                       savegame.globals.weatherData)
+        print "weather %r" % essfile.tell()
+
+        essfile.write(pack('I', savegame.globals.playerCombatCount))
+        write_created_data(essfile, savegame.globals)
+        print "count is %r" % essfile.tell()
+        essfile.write(pack('H', savegame.globals.quickKeysSize))
+        essfile.write(savegame.globals.quickKeysData)
+        print "count is %r" % essfile.tell()
+        write_bytelist(essfile, savegame.globals.reticuleSize,
+                       savegame.globals.reticuleData)
+        print "count is %r" % essfile.tell()
+        write_bytelist(essfile, savegame.globals.interfaceSize,
+                       savegame.globals.interfaceData)
+        print "count is %r" % essfile.tell()
+        essfile.write(pack('2H', savegame.globals.regionsSize,
+                           savegame.globals.regionsNum))
+
+        for iref, data in savegame.globals.regions.iteritems():
+            essfile.write(pack('II', iref, data))
+        print "after globals pd %s" % essfile.tell()
+        assert savegame.globals.recordsNum == len(savegame.records)
+        print "2recordsnum: %r" % savegame.globals.recordsNum
+        # Change records
+        count = 0
+        sizes = list()
+        print "count is %r" % essfile.tell()
+        for formId, record_type, flags, version, size, data in savegame.records:
+            essfile.write(pack('I', formId))
+            essfile.write(pack('B', record_type))
+            essfile.write(pack('I', flags))
+            essfile.write(pack('B', version))
+            essfile.write(pack('H', size))
+            assert len(data) == size
+            essfile.write(data)
+            count += size
+            sizes.append(essfile.tell())
+        #print "sizes %r" % sizes
+
+        essfile.write(pack('I', len(savegame.tempEffectsData)))
+        essfile.write(savegame.tempEffectsData)
+        essfile.write(pack('I', len(savegame.formIds)))
+        essfile.write(pack('%sI' % len(savegame.formIds), *(savegame.formIds)))
+        essfile.write(pack('I', len(savegame.worldSpaces)))
+        essfile.write(pack('%sI' % len(savegame.worldSpaces), *(savegame.worldSpaces)))
 
 if __name__ == '__main__':
     options = get_options()
     savegame = load(options)
 
     print savegame.gameheader
-    #print "%s plugins found" % len(savegame.plugins)
+    print "%s plugins found" % len(savegame.plugins)
     if options.list_plugins:
         for p in sorted(savegame.plugins):
             print p
@@ -331,5 +420,10 @@ if __name__ == '__main__':
     #for r in savegame.records:
     #    print RecordTypeNames.get(r[1], '%r xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx' % r[1])
     print '-----------------------------------------------'
+    print savegame.globals.recordsNum
+    print len(savegame.records)
     if options.write_to:
         write(savegame, options)
+
+    print savegame.globals.pcLocation
+    print 'Done.'
