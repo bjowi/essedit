@@ -12,6 +12,7 @@ import Image
 def get_options():
     parser = argparse.ArgumentParser(description='ff')
     parser.add_argument('-f', '--essfile', dest='essfile', type=str)
+    parser.add_argument('-g', '--essfile2', dest='essfile2', type=str)
     parser.add_argument('-i', '--image', dest='image', type=str)
     parser.add_argument('-p', '--list_plugins', dest='list_plugins', action='store_true')
     parser.add_argument('-r', '--list_records', dest='list_records', action='store_true')
@@ -198,10 +199,15 @@ def parse_record(filehandle):
     datasize, = unpack('H', filehandle.read(2))
 
     data = filehandle.read(datasize)
+    if record_type =='MISC':
+        parse_misc(data)
     return [formId, record_type, flags, version, datasize, data]
 
-def load(options):
-    with open(options.essfile, 'rb') as essfile:
+def parse_misc(data):
+    print data
+
+def load(filename, imagename=None):
+    with open(filename, 'rb') as essfile:
         # FileHeader
         headerpart = list(unpack('12s B B', essfile.read(14)))
         headerpart.append(parse_systemtime(essfile))
@@ -216,7 +222,7 @@ def load(options):
         gameheader.append(parse_b_or_bzstring(essfile, bz=True))
         gameheader.extend(list(unpack('fI', essfile.read(8))))
         gameheader.append(parse_systemtime(essfile))
-        gameheader.append(parse_screenshot(essfile, options.image))
+        gameheader.append(parse_screenshot(essfile, imagename))
         s = SaveGameHeader._make(gameheader)
 
         # Plugins
@@ -281,8 +287,8 @@ def load(options):
     savegame = SaveGame._make([h, s, g, plugins, records, tempEffectsData, formIds, worldSpaces])
     return savegame
 
-def write(savegame, options):
-    with open(options.write_to, 'wb') as essfile:
+def write(savegame, filename):
+    with open(filename, 'wb') as essfile:
         # Fileheader
         essfile.write(savegame.fileheader.fileId)
         essfile.write(pack('BB', savegame.fileheader.majorVersion,
@@ -377,23 +383,31 @@ def write(savegame, options):
 
 if __name__ == '__main__':
     options = get_options()
-    savegame = load(options)
+    savegame = load(options.essfile, options.image)
+    if options.essfile2:
+        savegame2 = load(options.essfile2, False)
+        for x, y, field in zip(savegame.globals, savegame2.globals, Globals._fields):
+            if x != y:
+                print field
+        sys.exit(0)
 
-    print savegame.gameheader
-    print "%s plugins found" % len(savegame.plugins)
+
+    #print savegame.gameheader
+    #print "%s plugins found" % len(savegame.plugins)
     if options.list_plugins:
         for p in sorted(savegame.plugins):
             print p
 
-    print "%s change records found" % len(savegame.records)
+    #print "%s change records found" % len(savegame.records)
 
     if options.list_records:
         for r in savegame.records:
             print RecordTypeNames.get(r[1], '%r UKNOWN RECORD TYPE' % r[1])
-    print '-----------------------------------------------'
+    #print '-----------------------------------------------'
 
     if options.write_to:
-        write(savegame, options)
+        write(savegame, options.write_to)
 
-    print savegame.globals.pcLocation
-    print 'Done.'
+    #print savegame.globals.pcLocation
+    #print 'Done.'
+    print savegame
