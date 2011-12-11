@@ -30,29 +30,6 @@ FileLocationTable = namedtuple('FileLocationTable', 'formIDArrayOffset unknownTa
 Globals = namedtuple('Globals', 'formIdsOffset recordsNum nextObjectId worldId worldX worldY pcLocation globalsNum globals tesClassSize numDeathCounts deathCounts gameModeSeconds processesSize processesData specEventSize specEventData weatherSize weatherData playerCombatCount createdNum createdData quickKeysSize quickKeysData reticuleSize reticuleData interfaceSize interfaceData regionsSize regionsNum regions')
 PCLocation = namedtuple('PCLocation', 'cell x y z')
 
-RecordTypes, RecordTypeNames = enum(FACT=6,
-                                    APPA=19,
-                                    ARMO=20,
-                                    BOOK=21,
-                                    CLOT=22,
-                                    INGR=25,
-                                    LIGH=26,
-                                    MISC=27,
-                                    WEAP=33,
-                                    AMMO=34,
-                                    NPC_=35,
-                                    CREA=36,
-                                    SLGM=38,
-                                    KEYM=39,
-                                    ALCH=40,
-                                    CELL=48,
-                                    REFR=49,
-                                    ACHR=50,
-                                    ACRE=51,
-                                    INFO=58,
-                                    QUST=59,
-                                    PACK=61)
-
 FormTypes = {
     0: ('NONE', '', ''),
     1: ('TES4', '', ''),
