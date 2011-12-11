@@ -292,7 +292,7 @@ def parse_dummy(data, size, name):
     contents = data.read(size)
     with open(name, 'wb') as f:
         f.write(contents)
-    return contens
+    return contents
 
 GlobalDataTypeParsers = {0: ('Misc Stats', parse_misc_stats),
                          1: ('Player Location', parse_player_loc),
