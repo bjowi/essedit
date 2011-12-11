@@ -24,7 +24,7 @@ def enum(**nums):
     res = namedtuple('Enum', nums.keys())
     return res(*nums.values()), dict((v,k) for k, v in nums.iteritems())
 
-SaveGame = namedtuple('SaveGame', 'gameheader filelocations globals plugins records tempEffectsData formIds worldSpaces')
+SaveGame = namedtuple('SaveGame', 'gameheader filelocations plugins g1 g2 changeforms g3 formIDArray, unknown2, unknown3')
 SaveGameHeader = namedtuple('SaveGameHeader', 'headerVersion, saveNumber, playerName, playerLevel, playerLocation, gameDate, playerRaceEditorId unknown1 unknown2 unknown3 filetime screenshot formVersion')
 FileLocationTable = namedtuple('FileLocationTable', 'formIDArrayOffset unknownTable3Offset globalDataTable1Offset globalDataTable2Offset changeFormsOffset globalDataTable3Offset globalDataTable1Count globalDataTable2Count globalDataTable3Count changeFormCount unused1 unused2 unused3 unused4 unused5 unused6 unused7 unused8 unused9 unused10 unused11 unused12 unused13 unused14 unused15')
 Globals = namedtuple('Globals', 'formIdsOffset recordsNum nextObjectId worldId worldX worldY pcLocation globalsNum globals tesClassSize numDeathCounts deathCounts gameModeSeconds processesSize processesData specEventSize specEventData weatherSize weatherData playerCombatCount createdNum createdData quickKeysSize quickKeysData reticuleSize reticuleData interfaceSize interfaceData regionsSize regionsNum regions')
@@ -657,61 +657,7 @@ def load(filename, imagename=None):
             unknowntable3.append(parse_wstring(essfile))
         print unknowntable3
 
-        sys.exit(0)
-        # Globals
-        globalslist = list()
-        globalslist.extend(list(unpack('6I', essfile.read(24))))
-        pcloc = PCLocation._make(unpack('I3f', essfile.read(16)))
-        globalslist.append(pcloc)
-        globalslist.extend(parse_globals(essfile))
-        tesClassSize = unpack('H', essfile.read(2))[0]
-        globalslist.append(tesClassSize)
-        globalslist.extend(parse_deathcounts(essfile))
-        globalslist.append(unpack('f', essfile.read(4))[0])
-
-        # processesData
-        globalslist.extend(parse_bytelist(essfile))
-
-        # specEventData
-        globalslist.extend(parse_bytelist(essfile))
-
-        # weatherData
-        globalslist.extend(parse_bytelist(essfile))
-        globalslist.append(unpack('I', essfile.read(4))[0])
-        globalslist.extend(parse_createddata(essfile))
-        globalslist.extend(parse_quickkeydata(essfile))
-
-        # reticuleData
-        globalslist.extend(parse_bytelist(essfile, bytetype='s'))
-
-        # interface stuff
-        globalslist.extend(parse_bytelist(essfile))
-
-        # regions
-        globalslist.extend(parse_regions(essfile))
-
-        g = Globals._make(globalslist)
-
-        # change records
-        records = list()
-        for c in range(g.recordsNum):
-            record = parse_record(essfile)
-            records.append(record)
-            formId, record_type, flags, version, datasize, data = records[-1]
-
-        # temporary effects
-        tempEffectsSize = unpack('I', essfile.read(4))[0]
-        tempEffectsData = essfile.read(tempEffectsSize)
-
-        # formIds
-        formIdsNum = unpack('I', essfile.read(4))[0]
-        formIds = unpack('%sI' % formIdsNum, essfile.read(4 * formIdsNum))
-
-        # worldSpaces
-        worldSpacesNum = unpack('I', essfile.read(4))[0]
-        worldSpaces = unpack('%sI' % worldSpacesNum, essfile.read(4 * worldSpacesNum))
-
-    savegame = SaveGame._make([h, s, g, plugins, records, tempEffectsData, formIds, worldSpaces])
+    savegame = SaveGame._make([s, flt, plugins, g1, g2, changeforms, g3, formIDArray, unknownArray, unknowntable3])
     return savegame
 
 def write(savegame, filename):
