@@ -388,7 +388,16 @@ if __name__ == '__main__':
         savegame2 = load(options.essfile2, False)
         for x, y, field in zip(savegame.globals, savegame2.globals, Globals._fields):
             if x != y:
-                print field
+                print "%s: %s != %s" % (field, x, y)
+                if field == 'globals':
+                    subobj1 = savegame.globals.globals
+                    subobj2 = savegame2.globals.globals
+                    print subobj1
+                    for key in subobj1.keys():
+                        x,y = subobj1[key], subobj2[key]
+                        if x != y:
+                            print "%s: %s != %s" % (key, x, y)
+
         sys.exit(0)
 
 
