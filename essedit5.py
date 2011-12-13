@@ -27,7 +27,6 @@ def enum(**nums):
 SaveGame = namedtuple('SaveGame', 'gameheader filelocations plugins g1 g2 changeforms g3 formIDArray, unknown2, unknown3')
 SaveGameHeader = namedtuple('SaveGameHeader', 'headerVersion, saveNumber, playerName, playerLevel, playerLocation, gameDate, playerRaceEditorId unknown1 unknown2 unknown3 filetime screenshot formVersion')
 FileLocationTable = namedtuple('FileLocationTable', 'formIDArrayOffset unknownTable3Offset globalDataTable1Offset globalDataTable2Offset changeFormsOffset globalDataTable3Offset globalDataTable1Count globalDataTable2Count globalDataTable3Count changeFormCount unused1 unused2 unused3 unused4 unused5 unused6 unused7 unused8 unused9 unused10 unused11 unused12 unused13 unused14 unused15')
-Globals = namedtuple('Globals', 'formIdsOffset recordsNum nextObjectId worldId worldX worldY pcLocation globalsNum globals tesClassSize numDeathCounts deathCounts gameModeSeconds processesSize processesData specEventSize specEventData weatherSize weatherData playerCombatCount createdNum createdData quickKeysSize quickKeysData reticuleSize reticuleData interfaceSize interfaceData regionsSize regionsNum regions')
 PCLocation = namedtuple('PCLocation', 'cell x y z')
 
 FormTypes = {
@@ -440,15 +439,6 @@ def parse_globals(filehandle):
 
     return [n_globals, globals_dict]
 
-def parse_deathcounts(filehandle):
-    numDeathCounts = unpack('I', filehandle.read(4))[0]
-    deathCounts = dict()
-    for n in range(numDeathCounts):
-        actor, deathCount = unpack('IH', filehandle.read(6))
-        deathCounts[actor] = deathCount
-
-    return [numDeathCounts, deathCounts]
-
 def parse_bytelist(filehandle, bytetype='s'):
     size = unpack('H', filehandle.read(2))[0]
     data = filehandle.read(size) # unpack('%d%s' % (size, bytetype), filehandle.read(size))
@@ -478,33 +468,6 @@ def write_created_data(filehandle, globalsdata):
         filehandle.write(record[0])
         filehandle.write(pack('4I', *(record[1:5])))
         filehandle.write(record[5])
-
-def parse_quickkeydata(filehandle):
-    quickKeysSize = unpack('H', filehandle.read(2))[0]
-    quickKeysData = filehandle.read(quickKeysSize)
-
-    return [quickKeysSize, quickKeysData]
-
-    # quickKeys = list()
-    # bytes_read = 0
-    # while True:
-    #     if bytes_read >= quickKeysSize:
-    #         break
-
-    #     flag = unpack('B', filehandle.read(1))[0]
-    #     bytes_read += 1
-    #     if flag:
-    #         iref = unpack('I', filehandle.read(4))[0]
-    #         quickKeys.append(iref)
-    #         bytes_read += 4
-    #     else:
-    #         notset = unpack('B', filehandle.read(1))[0]
-    #         quickKeys.append(notset)
-    #         bytes_read += 1
-    #     print "qs %r" % quickKeys
-    #     print "qs %r" % bytes_read
-
-    # return [quickKeysSize, quickKeys]
 
 def parse_regions(filehandle):
     size, count = unpack('2H', filehandle.read(4))
