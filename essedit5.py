@@ -5,6 +5,7 @@ import datetime
 from collections import defaultdict, namedtuple
 from struct import unpack, pack, error
 from StringIO import StringIO
+import time
 
 import sys
 import ImageFile
@@ -24,8 +25,8 @@ def enum(**nums):
     res = namedtuple('Enum', nums.keys())
     return res(*nums.values()), dict((v,k) for k, v in nums.iteritems())
 
-SaveGame = namedtuple('SaveGame', 'gameheader filelocations plugins g1 g2 changeforms g3 formIDArray, unknown2, unknown3')
-SaveGameHeader = namedtuple('SaveGameHeader', 'headerVersion, saveNumber, playerName, playerLevel, playerLocation, gameDate, playerRaceEditorId unknown1 unknown2 unknown3 filetime screenshot formVersion')
+SaveGame = namedtuple('SaveGame', 'gameheader filelocations plugins g1 g2 changeforms g3 formIDArray unknown2 unknown3')
+SaveGameHeader = namedtuple('SaveGameHeader', 'magic headerSize version saveNumber playerName playerLevel playerLocation gameDate playerRaceEditorId unknown1 unknown2 unknown3 filetime screenshot formVersion')
 FileLocationTable = namedtuple('FileLocationTable', 'formIDArrayOffset unknownTable3Offset globalDataTable1Offset globalDataTable2Offset changeFormsOffset globalDataTable3Offset globalDataTable1Count globalDataTable2Count globalDataTable3Count changeFormCount unused1 unused2 unused3 unused4 unused5 unused6 unused7 unused8 unused9 unused10 unused11 unused12 unused13 unused14 unused15')
 PCLocation = namedtuple('PCLocation', 'cell x y z')
 
@@ -372,9 +373,19 @@ def time_to_win_systemtime(pythontime):
 def parse_filetime(filehandle):
     t = unpack('II', filehandle.read(8))
     win_epoch = datetime.datetime(1601, 1, 1, 0, 0, 0)
-    ts = (t[1] << 32)  |t[0]
+    ts = (t[1] << 32) | t[0]
 
     return win_epoch + datetime.timedelta(microseconds=ts/10)
+
+
+def write_filetime(filehandle, dt):
+    ticks = time.mktime(dt.timetuple())
+    win_epoch = datetime.datetime(1601, 1, 1, 0, 0, 0)
+    unix_epoch = datetime.datetime(1970, 1, 1, 0, 0, 0)
+    dt += (unix_epoch - win_epoch)
+    win_ticks = int(time.mktime(dt.timetuple())) * 10000000
+    print win_ticks >> 32, dt.microsecond * 10
+    filehandle.write(pack('II', dt.microsecond * 10, (win_ticks >> 32)))
 
 
 def parse_systemtime(filehandle):
@@ -503,6 +514,7 @@ def parse_misc(data):
     print data
 
 def parse_header(filehandle):
+    magic = filehandle.read(13)
     size, = unpack('I', filehandle.read(4))
     version, saveNumber = unpack('II', filehandle.read(8))
     playerName = parse_wstring(filehandle)
@@ -512,7 +524,7 @@ def parse_header(filehandle):
     playerRaceEditorId = parse_wstring(filehandle)
     unknown, = unpack('H', filehandle.read(2))
     unknowns = unpack('ff', filehandle.read(8))
-    res = [version, saveNumber, playerName, playerLevel, playerLocation, gameDate, playerRaceEditorId]
+    res = [magic, size, version, saveNumber, playerName, playerLevel, playerLocation, gameDate, playerRaceEditorId]
     res.append(unknown)
     res.extend(list(unknowns))
     res.append(parse_filetime(filehandle))
@@ -537,14 +549,14 @@ def parse_global_data_item(filehandle):
 
 def load(filename, imagename=None):
     with open(filename, 'rb') as essfile:
-        magic = essfile.read(13)
-        print magic
         headerpart = parse_header(essfile)
         screenshot = parse_screenshot(essfile, imagename)
         formVersion, = unpack('B', essfile.read(1))
         headerpart.extend([screenshot, formVersion])
-        s = SaveGameHeader._make(headerpart)
-        print s
+        header = SaveGameHeader._make(headerpart)
+        print header
+        print header.filetime
+
 
         # Plugins
         plugins = list()
@@ -598,34 +610,29 @@ def load(filename, imagename=None):
             unknowntable3.append(parse_wstring(essfile))
         print unknowntable3
 
-    savegame = SaveGame._make([s, flt, plugins, g1, g2, changeforms, g3, formIDArray, unknownArray, unknowntable3])
+    savegame = SaveGame._make([header, flt, plugins, g1, g2, changeforms, g3, formIDArray, unknownArray, unknowntable3])
     return savegame
 
 def write(savegame, filename):
     with open(filename, 'wb') as essfile:
-        # Fileheader
-        essfile.write(savegame.fileheader.fileId)
-        essfile.write(pack('BB', savegame.fileheader.majorVersion,
-                           savegame.fileheader.minorVersion))
-        stime = time_to_win_systemtime(savegame.fileheader.exeTime)
-        essfile.write(pack('8H', *stime))
+        # Gameheader
+        essfile.write(savegame.gameheader.magic)
+        essfile.write(pack('III', savegame.gameheader.headerSize,
+                           savegame.gameheader.version, savegame.gameheader.saveNumber))
+        write_wstring(essfile, savegame.gameheader.playerName)
+        essfile.write(pack('I', savegame.gameheader.playerLevel))
+        write_wstring(essfile, savegame.gameheader.playerLocation)
+        write_wstring(essfile, savegame.gameheader.gameDate)
+        write_wstring(essfile, savegame.gameheader.playerRaceEditorId)
+        essfile.write(pack('H', savegame.gameheader.unknown1))
+        essfile.write(pack('ff', savegame.gameheader.unknown2, savegame.gameheader.unknown3))
+        write_filetime(essfile, savegame.gameheader.filetime)
 
-        # SaveGameHeader
-        essfile.write(pack('3I', savegame.gameheader.headerVersion,
-                           savegame.gameheader.saveHeaderSize,
-                           savegame.gameheader.saveNum))
-        write_b_or_bzstring(essfile, savegame.gameheader.pcName, bz=True)
-        essfile.write(pack('H', savegame.gameheader.pcLevel))
-        write_b_or_bzstring(essfile, savegame.gameheader.pcLocation, bz=True)
-        essfile.write(pack('fI', savegame.gameheader.gameDays,
-                           savegame.gameheader.gameTicks))
-
-        gtime = time_to_win_systemtime(savegame.gameheader.gameTime)
-        essfile.write(pack('8H', *gtime))
         im = savegame.gameheader.screenshot
         w, h = im.size
-        essfile.write(pack('3I', (w*h*3)+8, w, h))
+        essfile.write(pack('II', w, h))
         essfile.write(im.tostring())
+        essfile.write(pack('B', savegame.gameheader.formVersion))
 
         # Plugins
         plugincount = len(savegame.plugins)
@@ -730,6 +737,7 @@ if __name__ == '__main__':
     #print '-----------------------------------------------'
 
     if options.write_to:
+        print savegame.gameheader.filetime
         write(savegame, options.write_to)
 
     #print savegame.globals.pcLocation
