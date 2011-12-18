@@ -25,10 +25,11 @@ def enum(**nums):
     res = namedtuple('Enum', nums.keys())
     return res(*nums.values()), dict((v,k) for k, v in nums.iteritems())
 
-SaveGame = namedtuple('SaveGame', 'gameheader filelocations plugins g1 g2 changeforms g3 formIDArray unknown2 unknown3')
-SaveGameHeader = namedtuple('SaveGameHeader', 'magic headerSize version saveNumber playerName playerLevel playerLocation gameDate playerRaceEditorId unknown1 unknown2 unknown3 filetime screenshot formVersion')
+SaveGame = namedtuple('SaveGame', 'gameheader filelocations plugins g1 g2 changeforms g3 formIDArray unknown2 unknown3 unknownBytes')
+SaveGameHeader = namedtuple('SaveGameHeader', 'magic headerSize version saveNumber playerName playerLevel playerLocation gameDate playerRaceEditorId unknown1 unknown2 unknown3 filetime screenshot formVersion pluginInfoSize plugincount')
 FileLocationTable = namedtuple('FileLocationTable', 'formIDArrayOffset unknownTable3Offset globalDataTable1Offset globalDataTable2Offset changeFormsOffset globalDataTable3Offset globalDataTable1Count globalDataTable2Count globalDataTable3Count changeFormCount unused1 unused2 unused3 unused4 unused5 unused6 unused7 unused8 unused9 unused10 unused11 unused12 unused13 unused14 unused15')
 PCLocation = namedtuple('PCLocation', 'cell x y z')
+Record = namedtuple('Record', 'formid changeflags type version length1 length2 data')
 
 FormTypes = {
     0: ('NONE', '', ''),
@@ -226,6 +227,8 @@ savegameform_to_form = {
     48: 22
     }
 
+form_to_savegameform = {v:k for k,v in savegameform_to_form.iteritems()}
+
 StatCategoryNames = {0:'General',
                      1:'Quest',
                      2:'Combat',
@@ -236,6 +239,7 @@ StatCategoryNames = {0:'General',
 def parse_misc_stats(data, size):
     misc_stats = defaultdict(list)
     count, = unpack('I', data.read(4))
+
     for n in range(count):
         name = parse_wstring(data)
         category, = unpack('B', data.read(1))
@@ -244,6 +248,18 @@ def parse_misc_stats(data, size):
 
     return misc_stats
 
+def write_misc_stats(filehandle, misc_stats):
+    length = sum([len(l) for l in misc_stats.values()])
+    filehandle.write(pack('I', length))
+    for category, values in misc_stats.iteritems():
+        for name, value in values:
+            write_wstring(filehandle, name)
+            filehandle.write(pack('B', category))
+            filehandle.write(pack('i', value))
+
+    return True
+
+
 def parse_player_loc(data, size):
     one, = unpack('I', data.read(4))
     two = parse_refid(data)
@@ -251,6 +267,14 @@ def parse_player_loc(data, size):
     four = parse_refid(data)
     five, = unpack('I', data.read(4))
     return [one, two, three, four, five]
+
+def write_player_loc(filehandle, loc):
+    filehandle.write(pack('I', loc[0]))
+    write_refid(filehandle, loc[1])
+    filehandle.write(pack('4I', *loc[2]))
+    write_refid(filehandle, loc[3])
+    filehandle.write(pack('I', loc[4]))
+    return True
 
 def parse_tes(data, size):
     with open('tes', 'wb') as f:
@@ -277,60 +301,69 @@ def parse_tes(data, size):
     print data.tell()
     return list1, list2, list3
 
-def parse_globals(data, size):
-    print 'glob'
-    with open('glob', 'wb') as f:
-        f.write(data.read(size))
-    return None
-
 def parse_created(data, size):
     with open('created', 'wb') as f:
         f.write(data.read(size))
     return None
 
-def parse_dummy(data, size, name):
+def parse_dummy(data, size, name, dump=True):
     contents = data.read(size)
-    with open(name, 'wb') as f:
-        f.write(contents)
+    if dump:
+        with open(name, 'wb') as f:
+            f.write(contents)
     return contents
 
-GlobalDataTypeParsers = {0: ('Misc Stats', parse_misc_stats),
-                         1: ('Player Location', parse_player_loc),
-                         2: ('Tes', parse_dummy),
-                         3: ('Global Variables', parse_dummy),
-                         4: ('Created Objects', parse_dummy),
-                         5: ('Effects', parse_dummy),
-                         6: ('Weather', parse_dummy),
-                         7: ('Audio', parse_dummy),
-                         8: ('SkyCells', parse_dummy),
-                         100: ('Process Lists', parse_dummy),
-                         101: ('Combat', parse_dummy),
-                         102: ('Interface', parse_dummy),
-                         103: ('Actor Causes', parse_dummy),
-                         104: ('Detection Manager', parse_dummy),
-                         105: ('Location Metadata', parse_dummy),
-                         106: ('Quest Static Data', parse_dummy),
-                         107: ('StoryTeller', parse_dummy),
-                         108: ('Magic Favouites', parse_dummy),
-                         109: ('PlayerControls', parse_dummy),
-                         110: ('Story Event Manager', parse_dummy),
-                         111: ('Ingredient Shared', parse_dummy),
-                         112: ('Menu Controls', parse_dummy),
-                         113: ('MenuTopicManager', parse_dummy),
-                         114: ('Unknown 114', parse_dummy),
-                         1000: ('Temp Effects', parse_dummy),
-                         1001: ('Papyrus', parse_dummy),
-                         1002: ('Anim Objects', parse_dummy),
-                         1003: ('Timer', parse_dummy),
-                         1004: ('Synchronized Animations', parse_dummy),
-                         1005: ('Main', parse_dummy),
+def write_dummy(filehandle, data):
+    filehandle.write(data)
+    return True
+
+GlobalDataTypeParsers = {0: ('Misc Stats', parse_misc_stats, write_misc_stats),
+                         1: ('Player Location', parse_player_loc, write_player_loc),
+                         2: ('Tes', parse_dummy, write_dummy),
+                         3: ('Global Variables', parse_dummy, write_dummy),
+                         4: ('Created Objects', parse_dummy, write_dummy),
+                         5: ('Effects', parse_dummy, write_dummy),
+                         6: ('Weather', parse_dummy, write_dummy),
+                         7: ('Audio', parse_dummy, write_dummy),
+                         8: ('SkyCells', parse_dummy, write_dummy),
+                         100: ('Process Lists', parse_dummy, write_dummy),
+                         101: ('Combat', parse_dummy, write_dummy),
+                         102: ('Interface', parse_dummy, write_dummy),
+                         103: ('Actor Causes', parse_dummy, write_dummy),
+                         104: ('Detection Manager', parse_dummy, write_dummy),
+                         105: ('Location Metadata', parse_dummy, write_dummy),
+                         106: ('Quest Static Data', parse_dummy, write_dummy),
+                         107: ('StoryTeller', parse_dummy, write_dummy),
+                         108: ('Magic Favouites', parse_dummy, write_dummy),
+                         109: ('PlayerControls', parse_dummy, write_dummy),
+                         110: ('Story Event Manager', parse_dummy, write_dummy),
+                         111: ('Ingredient Shared', parse_dummy, write_dummy),
+                         112: ('Menu Controls', parse_dummy, write_dummy),
+                         113: ('MenuTopicManager', parse_dummy, write_dummy),
+                         114: ('Unknown 114', parse_dummy, write_dummy),
+                         1000: ('Temp Effects', parse_dummy, write_dummy),
+                         1001: ('Papyrus', parse_dummy, write_dummy),
+                         1002: ('Anim Objects', parse_dummy, write_dummy),
+                         1003: ('Timer', parse_dummy, write_dummy),
+                         1004: ('Synchronized Animations', parse_dummy, write_dummy),
+                         1005: ('Main', parse_dummy, write_dummy),
 }
+
 
 def parse_refid(data):
     byte0, byte1, byte2 = unpack('BBB', data.read(3))
-    #print "%d %d %d" % (byte0, byte1, byte2)
     flag = byte0 >> 6
+    value = ((byte0 & 63) << 16) + (byte1 << 8) + byte2
     return flag, ((byte0 & 63) << 16) + (byte1 << 8) + byte2
+
+
+def write_refid(filehandle, refid):
+    flag, value = refid
+    byte0 = (value >> 16) + (flag << 6)
+    byte1 = (value & 0xff00) >> 8
+    byte2 = value & 0xff
+    filehandle.write(pack('BBB', byte0, byte1, byte2))
+    return True
 
 def parse_vsval(data):
     byte0, = unpack('B', data.read(1))
@@ -353,22 +386,6 @@ def parse_tes_list1(data):
         result.append((flag, refid, value))
     return result
 
-def time_from_win_systemtime(systemtime):
-    print "1win:       %r" % systemtime
-    systemtime[7] *= 1000 # ms to us
-    systemtime.pop(2) # Remove dayofweek
-    print "1datetime:  %r" % systemtime
-    return datetime.datetime(*systemtime)
-
-def time_to_win_systemtime(pythontime):
-    systemtime = list(pythontime.timetuple())
-    print "2datetime:  %r" % systemtime
-    dow = systemtime.pop(6) # Get dayofweek
-    systemtime.insert(2, dow+1 % 6)
-    systemtime[7] /= 1000 # ms to us
-    print "2win:       %r" % systemtime[:8]
-    return systemtime[:8]
-
 
 def parse_filetime(filehandle):
     t = unpack('II', filehandle.read(8))
@@ -386,31 +403,6 @@ def write_filetime(filehandle, dt):
     win_ticks = int(time.mktime(dt.timetuple())) * 10000000
     print win_ticks >> 32, dt.microsecond * 10
     filehandle.write(pack('II', dt.microsecond * 10, (win_ticks >> 32)))
-
-
-def parse_systemtime(filehandle):
-    t = unpack('8H', filehandle.read(16))
-    print t
-    return time_from_win_systemtime(list(t))
-
-def write_b_or_bzstring(filehandle, s, z=False):
-    # Write a string prefixed with a byte length and optionally terminated with a zero (\x00).
-    if z:
-        filehandle.write(pack('B', len(s)+1))
-        filehandle.write(s+'\x00')
-    else:
-        filehandle.write(pack('B', len(s)))
-        filehandle.write(s)
-
-
-def parse_b_or_bzstring(filehandle, z=False):
-    # A string prefixed with a byte length and optionally terminated with a zero (\x00).
-    length = unpack('B', filehandle.read(1))[0]
-    s = filehandle.read(length)
-    if z:
-        return s[:-1]
-    else:
-        return s
 
 
 def write_wstring(filehandle, s, z=False):
@@ -441,58 +433,8 @@ def parse_screenshot(filehandle, write_to_file=None):
         im.save(write_to_file)
     return im
 
-def parse_globals(filehandle):
-    n_globals = unpack('H', filehandle.read(2))[0]
-    globals_dict = dict()
-    for n in range(n_globals):
-        iref, value = unpack('If', filehandle.read(8))
-        globals_dict[iref] = value
-
-    return [n_globals, globals_dict]
-
-def parse_bytelist(filehandle, bytetype='s'):
-    size = unpack('H', filehandle.read(2))[0]
-    data = filehandle.read(size) # unpack('%d%s' % (size, bytetype), filehandle.read(size))
-    return [size, data]
-
-def write_bytelist(filehandle, size, data):
-    filehandle.write(pack('H', len(data)))
-    filehandle.write(data)
-
-def parse_createddata(filehandle):
-    createdNum = unpack('I', filehandle.read(4))[0]
-    records = list()
-    #print "Found %d created records" % createdNum
-    for count in range(createdNum):
-        record_type, = unpack('4s', filehandle.read(4))
-        #print 'type: %r' % record_type
-        record_size, flags, formId, vcinfo = unpack('4I', filehandle.read(16))
-        data, = unpack('%ds' % record_size, filehandle.read(record_size))
-        #print 'data: %r' % data
-        records.append([record_type, record_size, flags, formId, vcinfo, data])
-
-    return [createdNum, records]
-
-def write_created_data(filehandle, globalsdata):
-    filehandle.write(pack('I', globalsdata.createdNum))
-    for record in globalsdata.createdData:
-        filehandle.write(record[0])
-        filehandle.write(pack('4I', *(record[1:5])))
-        filehandle.write(record[5])
-
-def parse_regions(filehandle):
-    size, count = unpack('2H', filehandle.read(4))
-
-    regions = dict()
-    for n in range(count):
-        iref, value = unpack('II', filehandle.read(8))
-        regions[iref] = value
-
-    return [size, count, regions]
-
-
 def parse_record(filehandle):
-    flag, refId = parse_refid(filehandle)
+    refId = parse_refid(filehandle)
     flags, = unpack('I', filehandle.read(4))
     rt, = unpack('B', filehandle.read(1))
     data_length_size = rt >> 6
@@ -505,13 +447,47 @@ def parse_record(filehandle):
         datasize1, datasize2 = unpack('HH', filehandle.read(4))
     elif data_length_size == 2:
         datasize1, datasize2 = unpack('II', filehandle.read(8))
+    else:
+        raise Exception("Strange datasize: %r" % data_length_size)
 
     data = filehandle.read(datasize1)
 
-    return [refId, record_type, flags, version, datasize1, datasize2, data]
+    return Record._make([refId, flags, savegameform_to_form[record_type], version, datasize1, datasize2, data])
 
-def parse_misc(data):
-    print data
+
+def write_record(filehandle, record):
+    write_refid(filehandle, record.formid)
+    filehandle.write(pack('I', record.changeflags))
+
+    # Handle compressed data like this for now
+    if record.length2 > 0:
+        datasize = record.length2
+    else:
+        datasize = len(record.data)
+
+    size_bits = 0
+    if datasize > 0xff:
+        size_bits = 1
+    elif datasize > 0xffff:
+        size_bits = 2
+
+    # Now the size_bits are calculated, reset to proper size
+    datasize = len(record.data)
+
+    record_type = (size_bits << 6) + form_to_savegameform[record.type]
+    filehandle.write(pack('B', record_type))
+    filehandle.write(pack('B', record.version))
+    if size_bits == 0:
+        filehandle.write(pack('BB', datasize, record.length2))
+    elif size_bits == 1:
+        filehandle.write(pack('HH', datasize, record.length2))
+    elif size_bits == 2:
+        filehandle.write(pack('II', datasize, record.length2))
+
+    filehandle.write(record.data)
+
+    return True
+
 
 def parse_header(filehandle):
     magic = filehandle.read(13)
@@ -536,15 +512,20 @@ def parse_file_location_table(filehandle):
 def parse_global_data_item(filehandle):
     type, size = unpack('II', filehandle.read(8))
     #data = filehandle.read(size)
-    #print type, size
-    name, parser = GlobalDataTypeParsers[type]
+    name, parser, _ = GlobalDataTypeParsers[type]
     #with open(name, 'wb') as f:
     #    f.write(data)
-    print name
     if type > 1:
-        return name, parser(filehandle, size, name)
+        return type, size, name, parser(filehandle, size, name)
     else:
-        return name, parser(filehandle, size)
+        return type, size, name, parser(filehandle, size)
+
+def write_global_data_item(filehandle, item):
+    type, size, name, data = item
+    filehandle.write(pack('I', type))
+    filehandle.write(pack('I', size))
+    name, _, writer = GlobalDataTypeParsers[type]
+    return writer(filehandle, data)
 
 
 def load(filename, imagename=None):
@@ -553,21 +534,21 @@ def load(filename, imagename=None):
         screenshot = parse_screenshot(essfile, imagename)
         formVersion, = unpack('B', essfile.read(1))
         headerpart.extend([screenshot, formVersion])
-        header = SaveGameHeader._make(headerpart)
-        print header
-        print header.filetime
-
 
         # Plugins
         plugins = list()
         pluginInfoSize, plugincount = unpack('IB', essfile.read(5))
+        headerpart.extend([pluginInfoSize, plugincount])
+        header = SaveGameHeader._make(headerpart)
+        print header
+        print header.filetime
         print plugincount
 
         for index in range(plugincount):
             plugins.append(parse_wstring(essfile))
-        print plugins
+
         flt = parse_file_location_table(essfile)
-        print "flt.globalDataTable1Count %r" % flt.globalDataTable1Count
+
         g1 = list()
         for c in range(flt.globalDataTable1Count):
             g1.append(parse_global_data_item(essfile))
@@ -577,12 +558,11 @@ def load(filename, imagename=None):
             g2.append(parse_global_data_item(essfile))
 
         changeforms = list()
-        print "flt.changeFormCount %r" % flt.changeFormCount
         for c in range(flt.changeFormCount):
             changeforms.append(parse_record(essfile))
 
-        s = set([t[1] for t in changeforms])
-        print [FormTypes[savegameform_to_form[f]][0] for f in sorted(s)]
+        s = set([t.type for t in changeforms])
+        print [FormTypes[f][0] for f in sorted(s)]
         g3 = list()
 
         for c in range(flt.globalDataTable3Count+1): # +1 bugfix
@@ -610,7 +590,7 @@ def load(filename, imagename=None):
             unknowntable3.append(parse_wstring(essfile))
         print unknowntable3
 
-    savegame = SaveGame._make([header, flt, plugins, g1, g2, changeforms, g3, formIDArray, unknownArray, unknowntable3])
+    savegame = SaveGame._make([header, flt, plugins, g1, g2, changeforms, g3, formIDArray, unknownArray, unknowntable3, unknownBytes])
     return savegame
 
 def write(savegame, filename):
@@ -635,73 +615,35 @@ def write(savegame, filename):
         essfile.write(pack('B', savegame.gameheader.formVersion))
 
         # Plugins
-        plugincount = len(savegame.plugins)
-        essfile.write(pack('B', plugincount))
+        essfile.write(pack('IB', savegame.gameheader.pluginInfoSize, len(savegame.plugins)))
         for plugin in savegame.plugins:
-            write_b_or_bzstring(essfile, plugin)
+            write_wstring(essfile, plugin)
 
+        essfile.write(pack('25I', *(savegame.filelocations._asdict().values())))
 
-        # Globals
-        essfile.write(pack('6I', *(savegame.globals[:6])))
+        for item in savegame.g1:
+            write_global_data_item(essfile, item)
 
-        essfile.write(pack('I3f', *(savegame.globals.pcLocation)))
-        essfile.write(pack('H', len(savegame.globals.globals)))
-        for k,v in savegame.globals.globals.iteritems():
-            essfile.write(pack('If', k, v))
+        for item in savegame.g2:
+            write_global_data_item(essfile, item)
 
-        essfile.write(pack('H', savegame.globals.tesClassSize))
+        for form in savegame.changeforms:
+            write_record(essfile, form)
 
-        essfile.write(pack('I', len(savegame.globals.deathCounts)))
-        for k,v in savegame.globals.deathCounts.iteritems():
-            essfile.write(pack('IH', k, v))
+        for item in savegame.g3:
+            write_global_data_item(essfile, item)
 
-        essfile.write(pack('f', savegame.globals.gameModeSeconds))
+        essfile.write(pack('I', len(savegame.formIDArray)))
+        essfile.write(pack('%sI' % len(savegame.formIDArray), *(savegame.formIDArray)))
+        essfile.write(pack('I', len(savegame.unknown2)))
+        essfile.write(pack('%sI' % len(savegame.unknown2), *(savegame.unknown2)))
 
-        write_bytelist(essfile, savegame.globals.processesSize,
-                       savegame.globals.processesData)
+        essfile.write(pack('I', savegame.unknownBytes))
+        essfile.write(pack('I', len(savegame.unknown3)))
+        for entry in savegame.unknown3:
+            print entry
+            write_wstring(essfile, entry)
 
-        write_bytelist(essfile, savegame.globals.specEventSize,
-                       savegame.globals.specEventData)
-
-        write_bytelist(essfile, savegame.globals.weatherSize,
-                       savegame.globals.weatherData)
-
-        essfile.write(pack('I', savegame.globals.playerCombatCount))
-        write_created_data(essfile, savegame.globals)
-
-        essfile.write(pack('H', savegame.globals.quickKeysSize))
-        essfile.write(savegame.globals.quickKeysData)
-
-        write_bytelist(essfile, savegame.globals.reticuleSize,
-                       savegame.globals.reticuleData)
-
-        write_bytelist(essfile, savegame.globals.interfaceSize,
-                       savegame.globals.interfaceData)
-
-        essfile.write(pack('2H', savegame.globals.regionsSize,
-                           savegame.globals.regionsNum))
-
-        for iref, data in savegame.globals.regions.iteritems():
-            essfile.write(pack('II', iref, data))
-
-        assert savegame.globals.recordsNum == len(savegame.records)
-
-        # Change records
-        for formId, record_type, flags, version, size, data in savegame.records:
-            essfile.write(pack('I', formId))
-            essfile.write(pack('B', record_type))
-            essfile.write(pack('I', flags))
-            essfile.write(pack('B', version))
-            essfile.write(pack('H', size))
-            assert len(data) == size
-            essfile.write(data)
-
-        essfile.write(pack('I', len(savegame.tempEffectsData)))
-        essfile.write(savegame.tempEffectsData)
-        essfile.write(pack('I', len(savegame.formIds)))
-        essfile.write(pack('%sI' % len(savegame.formIds), *(savegame.formIds)))
-        essfile.write(pack('I', len(savegame.worldSpaces)))
-        essfile.write(pack('%sI' % len(savegame.worldSpaces), *(savegame.worldSpaces)))
 
 if __name__ == '__main__':
     options = get_options()
@@ -742,4 +684,5 @@ if __name__ == '__main__':
 
     #print savegame.globals.pcLocation
     #print 'Done.'
-    print savegame
+    print sorted(set([r.type for r in savegame.changeforms]))
+    print sorted(set([form_to_savegameform[r.type] for r in savegame.changeforms]))
