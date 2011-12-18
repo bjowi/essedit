@@ -4,9 +4,9 @@ import argparse
 import datetime
 from collections import defaultdict, namedtuple
 from struct import unpack, pack, error
-from StringIO import StringIO
 import time
-
+import os
+from StringIO import StringIO
 import sys
 import ImageFile
 import Image
@@ -236,7 +236,7 @@ StatCategoryNames = {0:'General',
                      4:'Crafting',
                      5:'Crime'}
 
-def parse_misc_stats(data, size):
+def parse_misc_stats(data, size, name):
     misc_stats = defaultdict(list)
     count, = unpack('I', data.read(4))
 
@@ -260,7 +260,7 @@ def write_misc_stats(filehandle, misc_stats):
     return True
 
 
-def parse_player_loc(data, size):
+def parse_player_loc(data, size, name):
     one, = unpack('I', data.read(4))
     two = parse_refid(data)
     three = unpack('4I', data.read(16))
@@ -276,35 +276,39 @@ def write_player_loc(filehandle, loc):
     filehandle.write(pack('I', loc[4]))
     return True
 
-def parse_tes(data, size):
-    with open('tes', 'wb') as f:
-        f.write(data.read(size))
-    return None
-
-    print data.tell()
+def parse_tes(filehandle, size, name):
+    data = StringIO(filehandle.read(size))
     list1 = parse_tes_list1(data)
-    print list1
-    print data.tell()
     list2 = list()
     list3 = list()
-    count, = unpack('H', data.read(2))
-    print data.tell()
-    print "count 2 %r" % count
+    count, = unpack('I', data.read(4))
     for i in range(count):
         list2.append(parse_refid(data))
-    print list2
     print data.tell()
     count = parse_vsval(data)
     for i in range(count):
         list3.append(parse_refid(data))
+
+    print list1
+    print list2
     print list3
-    print data.tell()
     return list1, list2, list3
 
-def parse_created(data, size):
-    with open('created', 'wb') as f:
-        f.write(data.read(size))
-    return None
+def write_tes(filehandle, tes):
+    write_vsval(filehandle, len(tes[0]))
+    for item in tes[0]:
+        refid, u = item
+        write_refid(filehandle, refid)
+        filehandle.write(pack('H', u))
+
+    filehandle.write(pack('I', len(tes[1])))
+    for refid in tes[1]:
+        write_refid(filehandle, refid)
+
+    write_vsval(filehandle, len(tes[2]))
+    for refid in tes[2]:
+        write_refid(filehandle, refid)
+
 
 def parse_dummy(data, size, name, dump=True):
     contents = data.read(size)
@@ -319,7 +323,7 @@ def write_dummy(filehandle, data):
 
 GlobalDataTypeParsers = {0: ('Misc Stats', parse_misc_stats, write_misc_stats),
                          1: ('Player Location', parse_player_loc, write_player_loc),
-                         2: ('Tes', parse_dummy, write_dummy),
+                         2: ('Tes', parse_tes, write_tes),
                          3: ('Global Variables', parse_dummy, write_dummy),
                          4: ('Created Objects', parse_dummy, write_dummy),
                          5: ('Effects', parse_dummy, write_dummy),
@@ -365,25 +369,43 @@ def write_refid(filehandle, refid):
     filehandle.write(pack('BBB', byte0, byte1, byte2))
     return True
 
+
 def parse_vsval(data):
     byte0, = unpack('B', data.read(1))
     flag = byte0 & 3
     if flag == 0:
-        return byte0 & 252
+        return byte0 >> 2
     elif flag == 1:
         byte1, = unpack('B', data.read(1))
-        return ((byte0 & 252) << 8) + byte1
+        return (byte0 >> 2) + (byte1 << 6)
     elif flag == 2:
         byte1, byte2, byte3 = unpack('BBB', data.read(3))
-        return ((byte0 & 252) << 32) + (byte1 << 16) + (byte2 << 8) + byte3
+        return (byte0 >> 2) + (byte1 << 6) + (byte2 << 14) + (byte3 << 22)
+
+
+def write_vsval(filehandle, value):
+    if value < 0x40:
+        filehandle.write(pack('B', (value << 2) & 0b11111100))
+    elif value < 0x4000:
+        byte0 = ((value << 2) & 0b11111100) + 1
+        filehandle.write(pack('B', byte0))
+        byte1 = (0xff & (value >> 6))
+        filehandle.write(pack('B', byte1))
+
+    elif value < 0x40000000:
+        filehandle.write(pack('B', (0xff & ((value << 2) + 2))))
+        filehandle.write(pack('B', (0xff & (value >> 6))))
+        filehandle.write(pack('B', (0xff & (value >> 14))))
+        filehandle.write(pack('B', (0xff & (value >> 22))))
+
 
 def parse_tes_list1(data):
     result = list()
     count = parse_vsval(data)
     for i in range(count):
-        flag, refid = parse_refid(data)
+        refid = parse_refid(data)
         value, = unpack('H', data.read(2))
-        result.append((flag, refid, value))
+        result.append((refid, value))
     return result
 
 
@@ -513,12 +535,11 @@ def parse_global_data_item(filehandle):
     type, size = unpack('II', filehandle.read(8))
     #data = filehandle.read(size)
     name, parser, _ = GlobalDataTypeParsers[type]
+    print name
     #with open(name, 'wb') as f:
     #    f.write(data)
-    if type > 1:
-        return type, size, name, parser(filehandle, size, name)
-    else:
-        return type, size, name, parser(filehandle, size)
+    return type, size, name, parser(filehandle, size, name)
+
 
 def write_global_data_item(filehandle, item):
     type, size, name, data = item
