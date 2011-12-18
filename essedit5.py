@@ -277,24 +277,23 @@ def write_player_loc(filehandle, loc):
     return True
 
 def parse_tes(filehandle, size, name):
-    data = StringIO(filehandle.read(size))
+    #data = StringIO(filehandle.read(size))
+    data = filehandle
     list1 = parse_tes_list1(data)
     list2 = list()
     list3 = list()
     count, = unpack('I', data.read(4))
     for i in range(count):
         list2.append(parse_refid(data))
-    print data.tell()
+
     count = parse_vsval(data)
     for i in range(count):
         list3.append(parse_refid(data))
-
-    print list1
-    print list2
-    print list3
+    print "parse tes %r %r %r" % (list1, list2, list3)
     return list1, list2, list3
 
 def write_tes(filehandle, tes):
+    print "tes %r" % tes
     write_vsval(filehandle, len(tes[0]))
     for item in tes[0]:
         refid, u = item
@@ -310,6 +309,25 @@ def write_tes(filehandle, tes):
         write_refid(filehandle, refid)
 
 
+def parse_globals(data, size, name):
+    result = list()
+    count = parse_vsval(data)
+    for g in range(count):
+        refid = parse_refid(data)
+        value, = unpack('f', data.read(4))
+        result.append((refid, value))
+    print result
+    return result
+
+
+def write_globals(filehandle, global_data):
+    result = list()
+    write_vsval(filehandle, len(global_data))
+    for refid, value in global_data:
+        write_refid(filehandle, refid)
+        filehandle.write(pack('f', value))
+
+
 def parse_dummy(data, size, name, dump=True):
     contents = data.read(size)
     if dump:
@@ -317,14 +335,15 @@ def parse_dummy(data, size, name, dump=True):
             f.write(contents)
     return contents
 
+
 def write_dummy(filehandle, data):
     filehandle.write(data)
     return True
 
 GlobalDataTypeParsers = {0: ('Misc Stats', parse_misc_stats, write_misc_stats),
                          1: ('Player Location', parse_player_loc, write_player_loc),
-                         2: ('Tes', parse_tes, write_tes),
-                         3: ('Global Variables', parse_dummy, write_dummy),
+                         2: ('Tes', parse_dummy, write_dummy),
+                         3: ('Global Variables', parse_globals, write_globals),
                          4: ('Created Objects', parse_dummy, write_dummy),
                          5: ('Effects', parse_dummy, write_dummy),
                          6: ('Weather', parse_dummy, write_dummy),
@@ -423,7 +442,6 @@ def write_filetime(filehandle, dt):
     unix_epoch = datetime.datetime(1970, 1, 1, 0, 0, 0)
     dt += (unix_epoch - win_epoch)
     win_ticks = int(time.mktime(dt.timetuple())) * 10000000
-    print win_ticks >> 32, dt.microsecond * 10
     filehandle.write(pack('II', dt.microsecond * 10, (win_ticks >> 32)))
 
 
@@ -535,7 +553,6 @@ def parse_global_data_item(filehandle):
     type, size = unpack('II', filehandle.read(8))
     #data = filehandle.read(size)
     name, parser, _ = GlobalDataTypeParsers[type]
-    print name
     #with open(name, 'wb') as f:
     #    f.write(data)
     return type, size, name, parser(filehandle, size, name)
@@ -561,9 +578,6 @@ def load(filename, imagename=None):
         pluginInfoSize, plugincount = unpack('IB', essfile.read(5))
         headerpart.extend([pluginInfoSize, plugincount])
         header = SaveGameHeader._make(headerpart)
-        print header
-        print header.filetime
-        print plugincount
 
         for index in range(plugincount):
             plugins.append(parse_wstring(essfile))
@@ -583,7 +597,6 @@ def load(filename, imagename=None):
             changeforms.append(parse_record(essfile))
 
         s = set([t.type for t in changeforms])
-        print [FormTypes[f][0] for f in sorted(s)]
         g3 = list()
 
         for c in range(flt.globalDataTable3Count+1): # +1 bugfix
@@ -591,25 +604,19 @@ def load(filename, imagename=None):
 
         # formIds
         formIDArrayCount, = unpack('I', essfile.read(4))
-        print formIDArrayCount
         formIDArray = unpack('%sI' % formIDArrayCount, essfile.read(4 * formIDArrayCount))
-        print list(formIDArray)
 
         # unknown
         unknownCount, = unpack('I', essfile.read(4))
-        print unknownCount
         unknownArray = unpack('%sI' % unknownCount, essfile.read(4 * unknownCount))
-        print list(unknownArray)
 
         # unknown
         unknowntable3 = list()
         unknownBytes, = unpack('I', essfile.read(4))
         unknownCount, = unpack('I', essfile.read(4))
-        print unknownBytes
-        print unknownCount
         for c in range(unknownCount): # +1 bugfix
             unknowntable3.append(parse_wstring(essfile))
-        print unknowntable3
+
 
     savegame = SaveGame._make([header, flt, plugins, g1, g2, changeforms, g3, formIDArray, unknownArray, unknowntable3, unknownBytes])
     return savegame
@@ -662,7 +669,6 @@ def write(savegame, filename):
         essfile.write(pack('I', savegame.unknownBytes))
         essfile.write(pack('I', len(savegame.unknown3)))
         for entry in savegame.unknown3:
-            print entry
             write_wstring(essfile, entry)
 
 
@@ -703,7 +709,6 @@ if __name__ == '__main__':
         print savegame.gameheader.filetime
         write(savegame, options.write_to)
 
-    #print savegame.globals.pcLocation
     #print 'Done.'
-    print sorted(set([r.type for r in savegame.changeforms]))
-    print sorted(set([form_to_savegameform[r.type] for r in savegame.changeforms]))
+    #print sorted(set([FormTypes[r.type][0] for r in savegame.changeforms]))
+    #print sorted(set([form_to_savegameform[r.type] for r in savegame.changeforms]))
