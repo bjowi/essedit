@@ -1,11 +1,13 @@
 #!/usr/bin/env python
 
 import argparse
+from difflib import SequenceMatcher, context_diff
 import datetime
-from collections import defaultdict, namedtuple
+from collections import defaultdict, namedtuple, OrderedDict
 from struct import unpack, pack, error
 import time
 import os
+import pprint
 from StringIO import StringIO
 import sys
 import ImageFile
@@ -28,6 +30,7 @@ def enum(**nums):
 SaveGame = namedtuple('SaveGame', 'gameheader filelocations plugins g1 g2 changeforms g3 formIDArray unknown2 unknown3 unknownBytes')
 SaveGameHeader = namedtuple('SaveGameHeader', 'magic headerSize version saveNumber playerName playerLevel playerLocation gameDate playerRaceEditorId unknown1 unknown2 unknown3 filetime screenshot formVersion pluginInfoSize plugincount')
 FileLocationTable = namedtuple('FileLocationTable', 'formIDArrayOffset unknownTable3Offset globalDataTable1Offset globalDataTable2Offset changeFormsOffset globalDataTable3Offset globalDataTable1Count globalDataTable2Count globalDataTable3Count changeFormCount unused1 unused2 unused3 unused4 unused5 unused6 unused7 unused8 unused9 unused10 unused11 unused12 unused13 unused14 unused15')
+Globals1 = namedtuple('Globals1', 'misc_stats player_location tes global_variables created_objects effects weater audio skycells')
 PCLocation = namedtuple('PCLocation', 'cell x y z')
 Record = namedtuple('Record', 'formid changeflags type version length1 length2 data')
 
@@ -244,9 +247,8 @@ def parse_misc_stats(data, size, name):
         name = parse_wstring(data)
         category, = unpack('B', data.read(1))
         value, = unpack('i', data.read(4))
-        misc_stats[category].append((name, value))
-
-    return misc_stats
+        misc_stats[StatCategoryNames.get(category, 'Unknown')].append((name, value))
+    return dict(misc_stats)
 
 def write_misc_stats(filehandle, misc_stats):
     length = sum([len(l) for l in misc_stats.values()])
@@ -278,18 +280,34 @@ def write_player_loc(filehandle, loc):
 
 def parse_tes(filehandle, size, name):
     #data = StringIO(filehandle.read(size))
+    #parse_dummy(filehandle, size, name, True)
+    begin = filehandle.tell()
+    #sys.exit(89)
     data = filehandle
     list1 = parse_tes_list1(data)
     list2 = list()
     list3 = list()
+    #count = parse_vsval(data)
     count, = unpack('I', data.read(4))
+    print "second count %r" % count
     for i in range(count):
-        list2.append(parse_refid(data))
-
+        refid = parse_refid(data)
+        list2.append(refid)
+        print filehandle.tell()
     count = parse_vsval(data)
+    print "third count %r" % count
+
     for i in range(count):
         list3.append(parse_refid(data))
-    print "parse tes %r %r %r" % (list1, list2, list3)
+    print "parse tes %r %r %r" % (len(list1), len(list2), len(list3))
+    end = filehandle.tell()
+    extra_len = (end-begin) - size
+    print "parsed %s of %s bytes %r" % (end-begin, size, extra_len)
+    if -extra_len > 0:
+        extra = data.read(-extra_len)
+        with open('dump/' + 'tes_extra', 'wb') as f:
+            f.write(extra)
+
     return list1, list2, list3
 
 def write_tes(filehandle, tes):
@@ -310,20 +328,21 @@ def write_tes(filehandle, tes):
 
 
 def parse_globals(data, size, name):
-    result = list()
+    result = OrderedDict()
     count = parse_vsval(data)
+    print "globals: %r" % count
+    #sys.exit(8)
     for g in range(count):
         refid = parse_refid(data)
         value, = unpack('f', data.read(4))
-        result.append((refid, value))
-    print result
+        result[refid] = value
+    #pprint.pprint(sorted(result))
     return result
 
 
 def write_globals(filehandle, global_data):
-    result = list()
     write_vsval(filehandle, len(global_data))
-    for refid, value in global_data:
+    for refid, value in global_data.iteritems():
         write_refid(filehandle, refid)
         filehandle.write(pack('f', value))
 
@@ -331,7 +350,7 @@ def write_globals(filehandle, global_data):
 def parse_dummy(data, size, name, dump=True):
     contents = data.read(size)
     if dump:
-        with open(name, 'wb') as f:
+        with open('dump/' + name, 'wb') as f:
             f.write(contents)
     return contents
 
@@ -342,7 +361,7 @@ def write_dummy(filehandle, data):
 
 GlobalDataTypeParsers = {0: ('Misc Stats', parse_misc_stats, write_misc_stats),
                          1: ('Player Location', parse_player_loc, write_player_loc),
-                         2: ('Tes', parse_dummy, write_dummy),
+                         2: ('Tes', parse_tes, write_tes),
                          3: ('Global Variables', parse_globals, write_globals),
                          4: ('Created Objects', parse_dummy, write_dummy),
                          5: ('Effects', parse_dummy, write_dummy),
@@ -370,8 +389,7 @@ GlobalDataTypeParsers = {0: ('Misc Stats', parse_misc_stats, write_misc_stats),
                          1003: ('Timer', parse_dummy, write_dummy),
                          1004: ('Synchronized Animations', parse_dummy, write_dummy),
                          1005: ('Main', parse_dummy, write_dummy),
-}
-
+                         }
 
 def parse_refid(data):
     byte0, byte1, byte2 = unpack('BBB', data.read(3))
@@ -388,19 +406,36 @@ def write_refid(filehandle, refid):
     filehandle.write(pack('BBB', byte0, byte1, byte2))
     return True
 
-
 def parse_vsval(data):
+    r = parse_vsval_r(data)
+    print "vsval: %r" % r
+    return r
+
+def parse_vsval_r(data):
+    print "vsval tell: %r" % data.tell()
     byte0, = unpack('B', data.read(1))
     flag = byte0 & 3
+    print "vsval type: %r" % flag
+    print "vsval type2: %r" % bin(byte0)
+    data.seek(-1, os.SEEK_CUR)
     if flag == 0:
-        return byte0 >> 2
+        return (unpack('B', data.read(1))[0]) >> 2
+        #byte0, = unpack('B', data.read(1))
+        #return byte0 >> 2
     elif flag == 1:
+        #return unpack('H', data.read(2))[0] >> 2
+        byte0, = unpack('B', data.read(1))
         byte1, = unpack('B', data.read(1))
+        print "vsval type3: %r" % bin(byte0)
+        print "vsval type4: %r" % bin(byte1)
         return (byte0 >> 2) + (byte1 << 6)
     elif flag == 2:
+        #return unpack('I', data.read(4))[0] >> 2
         byte1, byte2, byte3 = unpack('BBB', data.read(3))
         return (byte0 >> 2) + (byte1 << 6) + (byte2 << 14) + (byte3 << 22)
-
+    else:
+        print "error in parse_vsval"
+        sys.exit(8)
 
 def write_vsval(filehandle, value):
     if value < 0x40:
@@ -421,10 +456,14 @@ def write_vsval(filehandle, value):
 def parse_tes_list1(data):
     result = list()
     count = parse_vsval(data)
+    print "first count %r" % count
     for i in range(count):
         refid = parse_refid(data)
         value, = unpack('H', data.read(2))
         result.append((refid, value))
+        print refid
+        print value
+
     return result
 
 
@@ -555,11 +594,11 @@ def parse_global_data_item(filehandle):
     name, parser, _ = GlobalDataTypeParsers[type]
     #with open(name, 'wb') as f:
     #    f.write(data)
-    return type, size, name, parser(filehandle, size, name)
+    return name, (size, type, parser(filehandle, size, name))
 
 
-def write_global_data_item(filehandle, item):
-    type, size, name, data = item
+def write_global_data_item(filehandle, name, item):
+    size, type, data = item
     filehandle.write(pack('I', type))
     filehandle.write(pack('I', size))
     name, _, writer = GlobalDataTypeParsers[type]
@@ -578,29 +617,32 @@ def load(filename, imagename=None):
         pluginInfoSize, plugincount = unpack('IB', essfile.read(5))
         headerpart.extend([pluginInfoSize, plugincount])
         header = SaveGameHeader._make(headerpart)
+        print header
 
         for index in range(plugincount):
             plugins.append(parse_wstring(essfile))
 
         flt = parse_file_location_table(essfile)
 
-        g1 = list()
+        g1 = OrderedDict()
         for c in range(flt.globalDataTable1Count):
-            g1.append(parse_global_data_item(essfile))
+            key, item = parse_global_data_item(essfile)
+            g1[key] = item
 
-        g2 = list()
+        g2 = OrderedDict()
         for c in range(flt.globalDataTable2Count):
-            g2.append(parse_global_data_item(essfile))
+            key, item = parse_global_data_item(essfile)
+            g2[key] = item
 
         changeforms = list()
         for c in range(flt.changeFormCount):
-            changeforms.append(parse_record(essfile))
+            r = parse_record(essfile)
+            changeforms.append(r)
 
-        s = set([t.type for t in changeforms])
-        g3 = list()
-
+        g3 = OrderedDict()
         for c in range(flt.globalDataTable3Count+1): # +1 bugfix
-            g3.append(parse_global_data_item(essfile))
+            key, item = parse_global_data_item(essfile)
+            g3[key] = item
 
         # formIds
         formIDArrayCount, = unpack('I', essfile.read(4))
@@ -649,17 +691,17 @@ def write(savegame, filename):
 
         essfile.write(pack('25I', *(savegame.filelocations._asdict().values())))
 
-        for item in savegame.g1:
-            write_global_data_item(essfile, item)
+        for key, item in savegame.g1.iteritems():
+            write_global_data_item(essfile, key, item)
 
-        for item in savegame.g2:
-            write_global_data_item(essfile, item)
+        for key, item in savegame.g2.iteritems():
+            write_global_data_item(essfile, key, item)
 
-        for form in savegame.changeforms:
-            write_record(essfile, form)
+        for record in savegame.changeforms:
+            write_record(essfile, record)
 
-        for item in savegame.g3:
-            write_global_data_item(essfile, item)
+        for key, item in savegame.g3.iteritems():
+            write_global_data_item(essfile, key, item)
 
         essfile.write(pack('I', len(savegame.formIDArray)))
         essfile.write(pack('%sI' % len(savegame.formIDArray), *(savegame.formIDArray)))
@@ -671,28 +713,81 @@ def write(savegame, filename):
         for entry in savegame.unknown3:
             write_wstring(essfile, entry)
 
+def diff_dict(d1, d2):
+    commonkeys = set(d1.keys())
+    commonkeys.intersection_update(d2.keys())
+    d1only = set(d1).difference(set(d2))
+    d2only = set(d2).difference(set(d1))
+    for key in commonkeys:
+        if d1[key] != d2[key]:
+            print '%r' %  (key,)
+            diff_item(d1[key], d2[key])
+
+    if d1only:
+        print "Only in first: %r" % {k:d1[k] for k in d1only}
+    if d2only:
+        print "Only in second: %r" % {k:d2[k] for k in d2only}
+
+def dictify_namedtuple(d):
+    if not isinstance(d, dict):
+        return d._asdict()
+    else:
+        return d
+
+def diff_namedtuple(t1, t2):
+    for x, y, field in zip(t1, t2, t1._fields):
+        if x != y:
+            print field
+            diff_item(x, y)
+            print
+
+def diff_item(x, y):
+    if isinstance(x, tuple):
+        if hasattr(x, '_fields'):
+            diff_namedtuple(x, y)
+        else:
+            diff_sequence(x, y)
+    elif isinstance(x, dict):
+        diff_dict(x, y)
+    elif isinstance(x, list):
+        diff_sequence(x, y)
+    elif isinstance(x, basestring):
+        diff_string(x, y)
+    else:
+        print "%r != %r" % (x, y)
+
+def diff_string(s1, s2):
+    print 'len %s' % len(s1)
+    if len(s1) > 1000000:
+        print 'too long'
+    else:
+        s = SequenceMatcher(None, s1, s2)
+        for tag, i1, i2, j1, j2 in s.get_opcodes():
+            if tag != 'equal':
+                print ("%7s a[%d:%d] (%s) b[%d:%d] (%s)" %
+                       (tag, i1, i2, s1[i1:i2], j1, j2, s2[j1:j2]))
+
+
+def diff_sequence(s1, s2):
+    for i1, i2 in zip(s1, s2):
+        if i1 != i2:
+            diff_item(i1, i2)
 
 if __name__ == '__main__':
+#    with open('Tes') as f:
+#        res = parse_tes(f, 1312, 'tt')
+#        print res
+#        write_tes(f, res)
+#    sys.exit(8)
     options = get_options()
     savegame = load(options.essfile, options.image)
+    print savegame.gameheader
     if options.essfile2:
         savegame2 = load(options.essfile2, False)
-        for x, y, field in zip(savegame.globals, savegame2.globals, Globals._fields):
-            if x != y:
-                print "%s: %s != %s" % (field, x, y)
-                if field == 'globals':
-                    subobj1 = savegame.globals.globals
-                    subobj2 = savegame2.globals.globals
-                    print subobj1
-                    for key in subobj1.keys():
-                        x,y = subobj1[key], subobj2[key]
-                        if x != y:
-                            print "%s: %s != %s" % (key, x, y)
+        diff_item(savegame, savegame2)
 
         sys.exit(0)
 
-
-    #print savegame.gameheader
     #print "%s plugins found" % len(savegame.plugins)
     if options.list_plugins:
         for p in sorted(savegame.plugins):
