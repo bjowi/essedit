@@ -30,23 +30,22 @@ class StringsFile(object):
             self.id_to_offset[string_id] = offset
         self.data_begin = sf.tell()
 
-
     def _read_string(self, sf, offset):
         sf.seek(self.data_begin + offset)
         if self.use_length_prefix:
             length, = unpack('I', sf.read(4))
             return sf.read(length-1)
         else:
-            return parse_b_or_bzstring(sf)
+            not_finished = True
+            chars = list()
+            while not_finished:
+                ch = sf.read(1)
+                if ch == '\0':
+                    not_finished = False
+                else:
+                    chars.append(ch)
+            return ''.join(chars)
 
-def _parse_b_or_bzstring(filehandle, bz=False):
-    # A string prefixed with a byte length and optionally terminated with a zero (\x00).
-    length = unpack('B', filehandle.read(1))[0]
-    s = filehandle.read(length)
-    if bz:
-        return s[:-1]
-    else:
-        return s
 
 class StringStore(object):
     def __init__(self):
@@ -57,4 +56,7 @@ class StringStore(object):
         sf = StringsFile(filename)
         print filename
         self.strings.update(sf.id_to_string)
-        print len(self.strings)
+        print self.strings
+
+    def lookup_string(string_id):
+        return self.strings.get(string_id)
