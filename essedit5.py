@@ -13,13 +13,16 @@ import sys
 import ImageFile
 import Image
 
+from stringtables import StringStore
+
 def get_options():
     parser = argparse.ArgumentParser(description='ff')
     parser.add_argument('-f', '--essfile', dest='essfile', type=str)
     parser.add_argument('-g', '--essfile2', dest='essfile2', type=str)
+    parser.add_argument('-s', '--stringsfile', dest='stringsfile', type=str, nargs='*')
     parser.add_argument('-i', '--image', dest='image', type=str)
     parser.add_argument('-p', '--list_plugins', dest='list_plugins', action='store_true')
-    parser.add_argument('-r', '--list_records', dest='list_records', action='store_true')
+    parser.add_argument('-r', '--list_records', dest='list_records', type=str)
     parser.add_argument('-w', '--write_to', dest='write_to', type=str)
     return parser.parse_args()
 
@@ -780,6 +783,13 @@ if __name__ == '__main__':
 #        write_tes(f, res)
 #    sys.exit(8)
     options = get_options()
+    if options.stringsfile:
+        strings = StringStore()
+        for f in options.stringsfile:
+            strings.load_file(f)
+
+        sys.exit(9)
+
     savegame = load(options.essfile, options.image)
     print savegame.gameheader
     if options.essfile2:
@@ -788,16 +798,22 @@ if __name__ == '__main__':
 
         sys.exit(0)
 
-    #print "%s plugins found" % len(savegame.plugins)
+    print "%s plugins found" % len(savegame.plugins)
     if options.list_plugins:
         for p in sorted(savegame.plugins):
             print p
 
-    #print "%s change records found" % len(savegame.records)
+    print "%s change records found" % len(savegame.changeforms)
+    print sorted(set([FormTypes[r.type][0] for r in savegame.changeforms]))
 
     if options.list_records:
-        for r in savegame.records:
-            print RecordTypeNames.get(r[1], '%r UKNOWN RECORD TYPE' % r[1])
+        for r in savegame.changeforms:
+            if FormTypes[r.type][0] == options.list_records:
+                print r
+                with open(options.list_records, 'wb') as f:
+                    f.write(r.data)
+
+                print parse_record(StringIO(r.data))
     #print '-----------------------------------------------'
 
     if options.write_to:
@@ -805,5 +821,4 @@ if __name__ == '__main__':
         write(savegame, options.write_to)
 
     #print 'Done.'
-    #print sorted(set([FormTypes[r.type][0] for r in savegame.changeforms]))
-    #print sorted(set([form_to_savegameform[r.type] for r in savegame.changeforms]))
+    print savegame.g1.get('Player Location')
