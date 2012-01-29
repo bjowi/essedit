@@ -54,9 +54,7 @@ class StringStore(object):
 
     def load_file(self, filename):
         sf = StringsFile(filename)
-        print filename
         self.strings.update(sf.id_to_string)
-        print self.strings
 
     def lookup_string(string_id):
         return self.strings.get(string_id)
