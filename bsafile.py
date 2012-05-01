@@ -101,7 +101,7 @@ def tesHash(fileName, use_ext=False):
     else:
         bchar = 0
     hash1 = chars[-1] | bchar << 8 | len(chars) << 16 | chars[0] << 24
-    #--(a,b)[test] is similar to test?a:b in C. (Except that evaluation is not shortcut.)
+
     if   ext == '.kf':  hash1 |= 0x80
     elif ext == '.nif': hash1 |= 0x8000
     elif ext == '.dds': hash1 |= 0x8080

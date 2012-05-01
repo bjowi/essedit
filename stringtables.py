@@ -1,6 +1,14 @@
 import sys
 from struct import unpack, pack, error
-from essedit import parse_b_or_bzstring
+
+def parse_b_or_bzstring(filehandle, bz=False):
+    # A string prefixed with a byte length and optionally terminated with a zero (\x00).
+    length = unpack('B', filehandle.read(1))[0]
+    s = filehandle.read(length)
+    if bz:
+        return s[:-1]
+    else:
+        return s
 
 class StringsFile(object):
     def __init__(self, filename):
@@ -11,7 +19,7 @@ class StringsFile(object):
         elif filetype in ['STRINGS']:
             self.use_length_prefix = False
         else:
-            print "Unknown filetype %r." % filetype
+            print("Unknown filetype %r." % filetype)
 
         self.id_to_offset = dict()
         self.id_to_string = dict()
@@ -19,7 +27,7 @@ class StringsFile(object):
         with open(self.filename, 'rb') as sf:
             self._read_offsets(sf)
 
-            for id, offset in self.id_to_offset.iteritems():
+            for id, offset in self.id_to_offset.items():
                 self.id_to_string[id] = self._read_string(sf, offset)
 
     def _read_offsets(self, sf):
