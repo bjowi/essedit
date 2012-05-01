@@ -34,7 +34,6 @@ class Handler:
 
     def draw_screenshot(self, drawingarea):
         if not self.current_surface:
-            print('returning')
             return
 
         surface = self.current_surface
@@ -44,8 +43,6 @@ class Handler:
         ctx = drawingarea.get_window().cairo_create()
         ctx.set_source_surface(surface, 0,0)
         ctx.paint()
-        #self.ctx = self.drawingarea.get_window().cairo_create()
-
 
     def prepare_surface(self):
         width, height, rgb_data = self.current_savegame.gameheader.screenshot
@@ -57,7 +54,6 @@ class Handler:
                 rgb_offset = (x + (y * width)) * 3
                 alpha = 0
 
-               # cairo.FORMAT_ARGB32 uses pre-multiplied alpha
                 data[offset+0] = rgb_data[rgb_offset+2]
                 data[offset+1] = rgb_data[rgb_offset+1]
                 data[offset+2] = rgb_data[rgb_offset+0]
@@ -83,19 +79,9 @@ class Handler:
 
         self.draw_screenshot(self.drawingarea)
 
-    def foo(self, *args):
-        print(self.liststore)
-        self.liststore.append(["Fedora"])
-        self.liststore.append(["Slackware"])
-        print(args)
-
     def on_destroy(self, *args):
         print(args)
         Gtk.main_quit(*args)
-
-    def onButtonPressed(self, button):
-        print("Hello World!")
-
 
 
 def get_files(path):
