@@ -7,6 +7,7 @@ import operator
 import os
 import time
 import sys
+import pprint
 from io import BytesIO
 
 from gi.repository import Gtk
@@ -22,8 +23,9 @@ class IdTreeIter(Gtk.TreeIter):
 
 class Handler:
     def __init__(self, builder):
-        self.drawingarea = builder.get_object('drawingarea2')
+        self.drawingarea = builder.get_object('screenshot_da')
         self.statusbar = builder.get_object('statusbar')
+        self.tv = builder.get_object('textview1')
 
         self.savegames = dict()
         self.current_savegame = None
@@ -31,6 +33,11 @@ class Handler:
 
     def on_drawingarea_draw(self, drawingarea, context):
         self.draw_screenshot(drawingarea)
+
+    def on_g1_key(self, selection):
+        model, treeiter = selection.get_selected()
+        statdict = self.current_savegame.g1
+        self.tv.get_buffer().set_text(pprint.pformat(statdict.get(model[treeiter][0])))
 
     def draw_screenshot(self, drawingarea):
         if not self.current_surface:
@@ -78,6 +85,14 @@ class Handler:
             self.savegames[filename] = self.current_savegame, self.current_surface
 
         self.draw_screenshot(self.drawingarea)
+        self.show_misc_stats()
+
+    def show_misc_stats(self):
+        statdict = self.current_savegame.g1
+
+        liststore = builder.get_object('g1_keys')
+        for key in statdict.keys():
+            liststore.append([key])
 
     def on_destroy(self, *args):
         print(args)
