@@ -34,9 +34,21 @@ class Handler:
     def on_drawingarea_draw(self, drawingarea, context):
         self.draw_screenshot(drawingarea)
 
+    def on_g1_clicked(self, selection):
+        self.current_statdict = self.current_savegame.g1
+        self.show_statdict_keys()
+
+    def on_g2_clicked(self, selection):
+        self.current_statdict = self.current_savegame.g2
+        self.show_statdict_keys()
+
+    def on_g3_clicked(self, selection):
+        self.current_statdict = self.current_savegame.g3
+        self.show_statdict_keys()
+
     def on_g1_key(self, selection):
         model, treeiter = selection.get_selected()
-        statdict = self.current_savegame.g1
+        statdict = self.current_statdict
         self.tv.get_buffer().set_text(pprint.pformat(statdict.get(model[treeiter][0])))
 
     def draw_screenshot(self, drawingarea):
@@ -85,13 +97,13 @@ class Handler:
             self.savegames[filename] = self.current_savegame, self.current_surface
 
         self.draw_screenshot(self.drawingarea)
-        self.show_misc_stats()
+        self.current_statdict = self.current_savegame.g1
+        self.show_statdict_keys()
 
-    def show_misc_stats(self):
-        statdict = self.current_savegame.g1
-
+    def show_statdict_keys(self):
         liststore = builder.get_object('g1_keys')
-        for key in statdict.keys():
+        liststore.clear()
+        for key in self.current_statdict.keys():
             liststore.append([key])
 
     def on_destroy(self, *args):

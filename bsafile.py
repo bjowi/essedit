@@ -1,11 +1,11 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 
 import argparse
 from collections import defaultdict, namedtuple, OrderedDict
 import os
 from struct import unpack, pack, error
 from StringIO import StringIO
-
+import zlib
 
 BSAHeader = namedtuple('BSAHeader', 'file_id , version, offset, archive_flags, folder_count, file_count, total_folder_name_length, total_file_name_length, file_flags')
 #, folder_records, file_record_blocks, file_name_block, files')
@@ -73,7 +73,7 @@ def load(filename):
 
             folders[h] = d._replace(files=file_list)
 
-        return header, folders
+        return header, folders, file_names, files
 
 
 def parse_b_or_bzstring(filehandle, bz=False):
@@ -120,14 +120,15 @@ def tesHash(fileName, use_ext=False):
 
 if __name__ == '__main__':
     options = get_options()
-    header, folders = load(options.bsafile)
-
+    header, folders, file_names, files = load(options.bsafile)
     for k, d in folders.iteritems():
-        print d.name
-        for f in d.files:
-            print f
-        print
+        if d.name == 'meshes\\critters\\bee':
+            with open(options.bsafile, 'rb') as bsafile:
+                for f in d.files:
+                    bsafile.seek(f.offset)
+                    with open(f.name, 'wb') as outfile:
+                        contents = bsafile.read(f.size)
+                        outfile.write(zlib.decompress(contents))
+
 
     print 'Done.'
-
-
